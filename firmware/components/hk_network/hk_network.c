@@ -6,6 +6,8 @@
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_mac.h"
+#include <stdio.h>
+
 #include "esp_netif.h"
 #include "esp_wifi.h"
 #include "mdns.h"
@@ -301,6 +303,58 @@ static esp_err_t init_provisioning_manager(void)
     return wifi_prov_mgr_init(config);
 }
 
+#if CONFIG_HK_BOARD_DEVKIT_N8R2
+/**
+ * Put the bench board on a network over USB, because the two normal ways in are
+ * both closed on it.
+ *
+ * The devkit has no button, so the press that clears credentials cannot be
+ * given; and joining its SoftAP from the machine that is driving it takes that
+ * machine off the network it is being told to join. Neither is a firmware
+ * problem and neither is worth a firmware workaround on the product, so this
+ * exists only where those two facts hold.
+ *
+ * It never overwrites credentials that are already stored. A preload that
+ * silently replaced a provisioned network would make every bench result
+ * ambiguous: nobody could tell which network a board was actually on.
+ *
+ * The values come from a build-time config that is deliberately empty in the
+ * committed tree; see main/Kconfig.projbuild. The password does end up inside
+ * the image, which is the honest cost of doing this at all, and the reason it
+ * is confined to a board with nothing attached to it.
+ */
+static void preload_bench_credentials(void)
+{
+    if (CONFIG_HK_DEVKIT_WIFI_SSID[0] == '\0') {
+        return;
+    }
+
+    wifi_config_t existing = {0};
+    if (esp_wifi_get_config(WIFI_IF_STA, &existing) == ESP_OK
+        && existing.sta.ssid[0] != '\0') {
+        ESP_LOGI(TAG, "bench preload skipped: this board already has a network");
+        return;
+    }
+
+    wifi_config_t bench = {0};
+    (void)snprintf((char *)bench.sta.ssid, sizeof(bench.sta.ssid),
+                   "%s", CONFIG_HK_DEVKIT_WIFI_SSID);
+    (void)snprintf((char *)bench.sta.password, sizeof(bench.sta.password),
+                   "%s", CONFIG_HK_DEVKIT_WIFI_PASSWORD);
+
+    const esp_err_t err = esp_wifi_set_config(WIFI_IF_STA, &bench);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "bench preload failed: %s", esp_err_to_name(err));
+        return;
+    }
+    /* The SSID is not a secret and naming it is the point: it says which
+     * network this board was put on, which is the first thing to check when a
+     * bench result disagrees with expectations. */
+    ESP_LOGW(TAG, "bench preload wrote a network for '%s'; this build carries it",
+             (const char *)bench.sta.ssid);
+}
+#endif
+
 esp_err_t hk_network_start(hk_net_status_cb_t callback, void *context)
 {
     s_callback = callback;
@@ -332,6 +386,10 @@ esp_err_t hk_network_start(hk_net_status_cb_t callback, void *context)
                                                    on_ip_event, NULL), TAG, "ip events");
     ESP_RETURN_ON_ERROR(esp_event_handler_register(WIFI_PROV_EVENT, ESP_EVENT_ANY_ID,
                                                    on_prov_event, NULL), TAG, "prov events");
+
+#if CONFIG_HK_BOARD_DEVKIT_N8R2
+    preload_bench_credentials();
+#endif
 
     /* Named for what it holds, a status, not for what was being loaded. A
      * variable called `credentials` reaching a log line is exactly the shape

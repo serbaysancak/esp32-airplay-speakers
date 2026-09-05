@@ -66,6 +66,27 @@ defaults only when it first writes an `sdkconfig` — sharing one would silently
 keep whichever profile was configured first, and that shows up as a board that
 does not boot rather than as a build error.
 
+#### Putting the devkit on a network
+
+The board has no button, so the 5-second press that clears Wi-Fi credentials
+cannot be given; and joining its SoftAP from the machine that is driving it
+takes that machine off the network it is being told to join. So the bench gets a
+third way in, over USB:
+
+```bash
+python3 firmware/tools/set_bench_wifi.py
+```
+
+It asks for the SSID and reads the password with a hidden prompt, then writes
+`firmware/sdkconfig.devkit.local` — ignored by git, mode 600. Add it to the
+build's `SDKCONFIG_DEFAULTS` (third entry) and the board joins on boot.
+
+The password ends up inside the built image. That is the honest cost, and the
+reason this is limited to a board with nothing attached to it. Run the tool with
+`--clear` when you are done. Existing stored credentials are never overwritten:
+a preload that silently replaced a provisioned network would make every bench
+result ambiguous.
+
 Four settings define a board: flash size, PSRAM mode, partition table and OTA
 hardware revision. `CMakeLists.txt` refuses to configure a build in which they
 disagree, and refuses to sign a devkit build at all. On the board itself the boot

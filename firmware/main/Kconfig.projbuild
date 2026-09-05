@@ -16,4 +16,33 @@ config HK_BOARD_DEVKIT_N8R2
         without also selecting the 8 MB flash size and the devkit partition table
         is a configure-time error, not something you discover on the bench.
 
+config HK_DEVKIT_WIFI_SSID
+    string "Bench Wi-Fi SSID to preload (empty: do not preload)"
+    depends on HK_BOARD_DEVKIT_N8R2
+    default ""
+    help
+        A convenience for the bench, and only for the bench.
+
+        The devkit has no button, so the 5-second press that clears credentials
+        cannot be given, and joining its SoftAP from the machine driving the
+        board would drop that machine off the network it is being told to join.
+        This lets the board be put on a network over USB instead.
+
+        Put the value in firmware/sdkconfig.devkit.local, which is ignored by
+        git. Do not put it in sdkconfig.devkit: that file is committed, and this
+        one carries somebody's actual Wi-Fi password.
+
+        Empty means preload nothing, which is the default and the only setting
+        that should ever be committed. Existing stored credentials are never
+        overwritten.
+
+config HK_DEVKIT_WIFI_PASSWORD
+    string "Bench Wi-Fi password to preload (empty: do not preload)"
+    depends on HK_BOARD_DEVKIT_N8R2
+    default ""
+    help
+        See HK_DEVKIT_WIFI_SSID. This is a real password: it ends up in the
+        built image, which is why it is confined to the bench board and to a
+        file that is never committed.
+
 endmenu

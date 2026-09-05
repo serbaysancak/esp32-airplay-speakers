@@ -50,6 +50,45 @@ config I2S_GND_IO
         Upstream supports small DAC breakout boards powered from spare GPIOs.
         This design powers the DAC from the supply rail, so both are -1.
 
+choice HK_AIRPLAY_OUTPUT
+    prompt "Where the receiver sends audio"
+    default HK_AIRPLAY_OUTPUT_I2S
+
+config HK_AIRPLAY_OUTPUT_I2S
+    bool "I2S to the PCM5102A (the product's output, ADR-0002)"
+
+config HK_AIRPLAY_OUTPUT_SPDIF
+    bool "Coaxial S/PDIF, bit-banged through I2S"
+    help
+        A bench output, not a product one. It exists so audio can be HEARD
+        before the PCM5102A modules arrive: the receiver's decode, clock and
+        timing are all exercised, and an external DAC does the conversion.
+
+        Only the data pin carries signal; no bit or word clock is emitted. It
+        needs three passive parts between the GPIO and the coax centre, because
+        S/PDIF wants 0.5 V into 75 ohm and a GPIO swings 3.3 V:
+
+            GPIO --[210R]--+--[100nF]-- coax centre
+                           |
+                         [110R]
+                           |
+            GND -----------+---------- coax shield
+
+        Loaded by a 75 ohm input that yields 0.58 Vpp, inside the 0.5 V +/-20%
+        the standard allows, with a source impedance of 72 ohm. Driving the
+        cable straight from the GPIO is out of spec in both.
+
+endchoice
+
+config SPDIF_DO_IO
+    int
+    depends on HK_AIRPLAY_OUTPUT_SPDIF
+    default 6
+    help
+        Not a free choice: it must be the pin ADR-0011 reserved for audio data,
+        and hk_airplay.c asserts that at compile time. S/PDIF replaces the I2S
+        output rather than joining it, so it belongs on the same pin.
+
 config OUTPUT_SAMPLE_RATE_HZ
     int
     default 44100

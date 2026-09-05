@@ -186,6 +186,45 @@ Aynı turda ikinci bir kusur: `wifi_prov_mgr_start_provisioning` her iki taşım
 
 Geliştirme kartında harici RGB LED'in bağlı olduğu pinlerde hiçbir şey yok, yani cihazın durumu yalnız seri konsoldan okunabiliyordu. `hk_ui` artık aynı render geçişinin ürettiği değerleri kartın kendi adreslenebilir LED'ine de yazıyor (`gpio48`, Kconfig ile değiştirilebilir). Ayna, ikinci bir gösterge değil: renk aynı hesaptan geliyor, dolayısıyla ikisi birbiriyle çelişemez.
 
+## Ses ilk kez duyuldu — S/PDIF tezgâh çıkışı
+
+Kartta PCM5102A yok ve sipariş edilen modüller gelmedi, yani I2S üç pini hiçbir şeye sürüyordu: yığın `gaps=0` diyordu ama kimse doğrulayamıyordu.
+
+Vendor edilen yığın `audio_output_spdif.c` taşıyor ve hedeften bağımsız (modern `i2s_std` sürücüsü). BMC kodlamasını I2S üzerinden bit-bang ediyor, yalnız veri pininden gerçek bir S/PDIF akışı çıkarıyor; bit ve kelime saati hiçbir yere gitmiyor. Geliştirme kartında varsayılan çıkış bu yapıldı, ürün I2S'te kaldı.
+
+Pin, ADR-0011'in ses verisi için ayırdığı `GPIO6`; `hk_airplay.c` bunu derleme anında `_Static_assert` ile hk_pins'e bağlıyor. S/PDIF I2S'in yanına değil, yerine geçiyor.
+
+Arayüz devresi üç pasif parça. Şartname 75 Ω'a 0,5 V ±%20 istiyor, GPIO 3,3 V sallıyor:
+
+```text
+GPIO6 --[R1]--+--[100nF]-- coax merkez
+              |
+            [R2]
+              |
+GND ----------+----------- coax toprak
+```
+
+| R1 / R2 | Tepe | Kaynak Z |
+|---|---:|---:|
+| 210 / 110 (yığının verdiği, %1) | 0,578 V | 72,2 Ω |
+| 220 / 120 (E24) | 0,572 V | 77,6 Ω |
+| 270 / 150 (E24) | 0,516 V | 96,4 Ω |
+| 330 / 100 | 0,379 V | **şartname altı** |
+
+**Sonuç: FiiO Q15 coax girişinde temiz 44,1 kHz kilit, ses duyuldu.** Bu, alıcının çözme, PTP zamanlama ve çıkış zincirinin duyulabilir ilk kanıtı. Hiçbir fiziksel kapı açılmadı: dönüşümü kullanıcının kendi DAC'ı yapıyor, bilinmeyen bir sürücü sürülmüyor.
+
+### Neden 44,1 kHz / 16 bit, ve tavanın nerede olduğu
+
+Kaynak 24 bit / 176,4 kHz gönderildiğinde de DAC `PCM 44k` gösteriyor. Doğru davranış, ve sınır üç yerden geliyor — hiçbiri bu kart değil:
+
+1. **AirPlay hi-res taşımıyor.** Tavan protokolde. Bu ADR-0007'de zaten kayıtlı: `shairport-sync`'in "çalışmayanlar" listesindeki ilk madde HD lossless (96/192 kHz). iPhone dönüştürmeyi göndermeden önce yapıyor.
+2. **Çıkış oranı 44.100'e sabit** (`CONFIG_OUTPUT_SAMPLE_RATE_HZ`).
+3. **Yol 16 bit** — `audio_output_spdif.c` araya giren PCM'i `int16_t` olarak işliyor.
+
+Donanım sınır değil. S/PDIF taşıma hızı 44,1 kHz'de 5,645 Mbit/s; 192 kHz 24,576 Mbit/s ister ve ESP32-S3'ün I2S'i bunu saatleyebilir. Yükseltmenin yolu kaynağı değiştirmekten geçer, firmware ayarından değil.
+
+Yığın 48 kHz'e ayarlanabilir (yeniden örnekleyici var) ama bu **yukarı örnekleme** olur: 44,1'de olmayan bilgiyi eklemez, CPU harcar. Bu üründe duyulanı belirleyen şey sürücü, kabin, crossover ve amfidir; 44,1 ile 176,4 arasındaki fark değil.
+
 ## Bu kartta kanıtlanamayacak olanlar
 
 - `G7` dört cihaz senkronu: tek kart var.

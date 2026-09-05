@@ -57,6 +57,14 @@ _Static_assert(CONFIG_I2S_WS_IO == HK_PIN_I2S_LRCLK,
 _Static_assert(CONFIG_I2S_DO_IO == HK_PIN_I2S_DATA,
                "AirPlay data output does not match hk_pins");
 
+#if CONFIG_HK_AIRPLAY_OUTPUT_SPDIF
+/* S/PDIF replaces the I2S output rather than joining it, so it lands on the
+ * same reserved pin. Asserted for the same reason as the three above: a pin
+ * named in two places is a pin that can disagree with itself. */
+_Static_assert(CONFIG_SPDIF_DO_IO == HK_PIN_I2S_DATA,
+               "S/PDIF output does not match hk_pins");
+#endif
+
 static bool                  s_running;
 static hk_airplay_state_cb_t s_on_state;
 static void                 *s_state_context;
@@ -226,8 +234,14 @@ esp_err_t hk_airplay_start(hk_airplay_state_cb_t on_state, void *context)
      * the I2S pins. hk_audio still owns the DAC and amplifier mute lines and
      * still holds them asserted, because audio is still not permitted -- and on
      * this board there is nothing on the other end of those pins anyway. */
+#if CONFIG_HK_AIRPLAY_OUTPUT_SPDIF
+    ESP_LOGI(TAG, "receiver ready; audio leaves as S/PDIF on gpio%d. "
+                  "The DAC and amplifier lines stay muted -- this output does "
+                  "not go through them.", CONFIG_SPDIF_DO_IO);
+#else
     ESP_LOGI(TAG, "receiver ready; I2S is clocked from here on, "
                   "the DAC and amplifier stay muted");
+#endif
     return ESP_OK;
 }
 

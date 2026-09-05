@@ -48,3 +48,12 @@ CONFIG_HK_BOARD_DEVKIT_N8R2=y
 #     refuses to start until G0/G2 have produced a protection profile.
 #     Enabling it binds this build to the upstream non-commercial licence.
 CONFIG_HK_AIRPLAY=y
+
+# --- Audio out: coaxial S/PDIF, not I2S.
+#     The product sends I2S to a PCM5102A (ADR-0002). This board has no DAC on
+#     it, so I2S here would clock three pins into nothing and no one could hear
+#     whether the receiver actually works. S/PDIF puts the same decoded, timed
+#     audio on one pin, where an external DAC can convert it -- which turns
+#     "the stack reports gaps=0" into something a person can check by ear.
+#     It needs three passive parts; the circuit is in the component's Kconfig.
+CONFIG_HK_AIRPLAY_OUTPUT_SPDIF=y

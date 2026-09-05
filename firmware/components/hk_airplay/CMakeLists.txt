@@ -31,7 +31,6 @@ set(VENDOR_SRCS
     vendor/audio/audio_crypto.c
     vendor/audio/audio_resample.c
     vendor/audio/audio_output_common.c
-    vendor/audio/audio_output.c
     vendor/rtsp/rtsp_server.c
     vendor/rtsp/rtsp_conn.c
     vendor/rtsp/rtsp_message.c
@@ -59,6 +58,16 @@ set(VENDOR_SRCS
     vendor/dacp_client.c
     vendor/alac_magic_cookie.c
 )
+
+# The output backend is chosen at compile time, upstream's own arrangement:
+# audio_output_common.c carries weak defaults and exactly one backend supplies
+# the rest. S/PDIF is a bench output that lets the audio path be heard before
+# the product's DAC exists; see Kconfig for the circuit it needs.
+if(CONFIG_HK_AIRPLAY_OUTPUT_SPDIF)
+    list(APPEND VENDOR_SRCS vendor/audio/audio_output_spdif.c)
+else()
+    list(APPEND VENDOR_SRCS vendor/audio/audio_output.c)
+endif()
 
 if(CONFIG_HK_AIRPLAY)
     set(HK_AIRPLAY_SRCS "hk_airplay.c" "shim/hk_airplay_shim.c" ${VENDOR_SRCS})

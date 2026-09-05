@@ -19,9 +19,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from check_partitions import check, load  # noqa: E402
+from check_partitions import FLASH_SIZE, check, load, parse_size  # noqa: E402
 
 REAL_CSV = Path(__file__).resolve().parent.parent / "partitions.csv"
+DEVKIT_CSV = Path(__file__).resolve().parent.parent / "partitions-devkit.csv"
 
 
 def mutate(original: str, replacement: str) -> list[str]:
@@ -86,6 +87,57 @@ def main() -> int:
     else:
         print("ok   the real partitions.csv passes")
 
+    # The second board. Two tables and one flash-size constant is how a devkit
+    # table silently gets validated against 16 MB of flash it does not have, so
+    # both directions of the pairing are asserted here.
+    problems = check(load(DEVKIT_CSV), None, 8 * 1024 * 1024)
+    if problems:
+        print(f"FAIL partitions-devkit.csv should pass at 8 MB, but reported: {problems}")
+        failures += 1
+    else:
+        print("ok   partitions-devkit.csv passes at 8 MB")
+
+    problems = check(load(REAL_CSV), None, 8 * 1024 * 1024)
+    if any("past the 8 MB flash" in problem for problem in problems):
+        print("ok   caught: the 16 MB product table does not fit 8 MB of flash")
+    else:
+        print(f"FAIL missed: the product table checked against 8 MB, got {problems}")
+        failures += 1
+
+    problems = check(load(DEVKIT_CSV), None)
+    if problems:
+        print(f"FAIL the devkit table should still fit the default 16 MB: {problems}")
+        failures += 1
+    else:
+        print("ok   the devkit table fits the default flash size too")
+
+    # A bare number means bytes. Reading "8" as 8 MB would turn a typo into a
+    # flash size every table passes against.
+    size_cases = [("8MB", 8 * 1024 * 1024), ("8M", 8 * 1024 * 1024),
+                  ("0x800000", 8 * 1024 * 1024), ("8388608", 8 * 1024 * 1024),
+                  ("16MB", FLASH_SIZE), ("8", 8)]
+    for text, expected_size in size_cases:
+        try:
+            actual = parse_size(text)
+        except ValueError as error:
+            print(f"FAIL parse_size({text!r}) raised {error}")
+            failures += 1
+            continue
+        if actual == expected_size:
+            print(f"ok   parse_size({text!r}) = {actual}")
+        else:
+            print(f"FAIL parse_size({text!r}) = {actual}, expected {expected_size}")
+            failures += 1
+
+    for text in ("banana", "0", "-4MB"):
+        try:
+            parse_size(text)
+        except ValueError:
+            print(f"ok   parse_size rejects {text!r}")
+        else:
+            print(f"FAIL parse_size accepted {text!r}")
+            failures += 1
+
     for name, original, replacement, expected in CASES:
         problems = mutate(original, replacement)
         if any(expected in problem for problem in problems):
@@ -94,7 +146,7 @@ def main() -> int:
             print(f"FAIL missed: {name}\n     expected a problem containing {expected!r}, got {problems}")
             failures += 1
 
-    print(f"\n{len(CASES) + 1} cases, {failures} failures")
+    print(f"\n{len(CASES) + 1 + 3 + len(size_cases) + 3} cases, {failures} failures")
     return 1 if failures else 0
 
 

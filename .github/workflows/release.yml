@@ -117,6 +117,15 @@ jobs:
           # Anti-rollback burns eFuses irreversibly. It stays off (ADR-0008).
           ! grep -qx 'CONFIG_BOOTLOADER_APP_ANTI_ROLLBACK=y' "$SDKCONFIG" \
             || { echo "anti-rollback would burn eFuses on every boot"; exit 1; }
+
+          # A release is for the product board. The devkit profile builds for
+          # 8 MB of flash with a different partition table and reports a
+          # different OTA hardware revision; published under a product tag it
+          # would be an image no product board accepts and every devkit does.
+          ! grep -qx 'CONFIG_HK_BOARD_DEVKIT_N8R2=y' "$SDKCONFIG" \
+            || { echo "the release build is configured for the bring-up devkit"; exit 1; }
+          grep -qx 'CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y' "$SDKCONFIG" \
+            || { echo "the release build is not configured for a 16 MB part"; exit 1; }
       - name: rollback and its health check must be enabled together
         shell: bash
         run: |

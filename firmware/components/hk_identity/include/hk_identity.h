@@ -17,15 +17,27 @@
 #define HK_PRODUCT_FAMILY "Harman Kardom"
 
 /**
- * Hardware revision, from ADR-0010.
+ * Hardware revision. The product board is N16R8 (ADR-0010).
  *
  * The manifest carries the revision a release was built for and the device
  * refuses anything that does not match, so this string and the one
  * make_manifest.py writes have to agree exactly. Defined once here rather than
  * typed at each use: two spellings would produce a device that refuses every
  * release with a message about hardware, which reads like a hardware problem.
+ *
+ * The bring-up devkit overrides it from components/hk_identity/CMakeLists.txt,
+ * because a devkit and a product board must never accept each other's releases:
+ * they have different flash sizes and different partition tables, so an image
+ * built for one does not merely misbehave on the other, it lands in the wrong
+ * place. The override is driven by the Kconfig board option rather than a
+ * command-line -D, so that selecting the board selects the revision with it.
+ *
+ * The default is the product value, which leaves the host tests and every build
+ * that does not deliberately ask for the devkit unchanged.
  */
+#ifndef HK_HW_REVISION
 #define HK_HW_REVISION "prototype-n16r8"
+#endif
 
 /** Captive portal page title. */
 #define HK_PORTAL_TITLE "Harman Kardom Kurulum"

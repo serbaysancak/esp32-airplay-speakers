@@ -371,9 +371,27 @@ static void report_build(void)
  * PSRAM is reported because it is the half of "N16R8" that flash size alone
  * cannot distinguish; an N16 board without PSRAM boots fine and would otherwise
  * look correct in this report.
+ *
+ * PSRAM size is also the one board fact worth checking rather than only printing,
+ * and unlike the flash case above this check can fire. The size is detected at
+ * runtime while the board variant is a build-time decision, so the two can
+ * disagree: a devkit image flashed onto a product board, or the reverse. Both
+ * boot. Both then run with a partition table built for the other part. Saying so
+ * here is the only place that disagreement becomes visible.
  */
+#if CONFIG_HK_BOARD_DEVKIT_N8R2
+#define HK_EXPECTED_PSRAM_MB 2u
+#else
+#define HK_EXPECTED_PSRAM_MB 8u
+#endif
+
 static void report_hardware(void)
 {
+    /* Which board this image was built for, not what is under it. The OTA
+     * manifest is matched against exactly this string, so a device that is
+     * refusing every release can be diagnosed from its own boot log. */
+    ESP_LOGI(TAG, "board       %s", HK_HW_REVISION);
+
     esp_chip_info_t chip;
     esp_chip_info(&chip);
     ESP_LOGI(TAG, "chip        %d core(s), revision %d", chip.cores, chip.revision);
@@ -386,11 +404,18 @@ static void report_hardware(void)
         ESP_LOGW(TAG, "flash       size not detected: %s", esp_err_to_name(err));
     }
 
-    size_t psram = esp_psram_get_size();
+    const size_t psram = esp_psram_get_size();
+    const unsigned psram_mb = (unsigned)(psram / (1024U * 1024U));
     if (psram == 0) {
-        ESP_LOGE(TAG, "psram       none found; ADR-0010 specifies N16R8 with 8 MB PSRAM");
+        ESP_LOGE(TAG, "psram       none found; %s expects %u MB",
+                 HK_HW_REVISION, HK_EXPECTED_PSRAM_MB);
+    } else if (psram_mb != HK_EXPECTED_PSRAM_MB) {
+        ESP_LOGE(TAG, "psram       %u MB, but this image is built for %s with %u MB. "
+                      "This is the wrong image for this board: its partition table "
+                      "describes a different part.",
+                 psram_mb, HK_HW_REVISION, HK_EXPECTED_PSRAM_MB);
     } else {
-        ESP_LOGI(TAG, "psram       %u MB", (unsigned)(psram / (1024U * 1024U)));
+        ESP_LOGI(TAG, "psram       %u MB", psram_mb);
     }
 }
 

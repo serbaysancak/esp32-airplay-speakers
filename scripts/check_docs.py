@@ -66,6 +66,7 @@ DRIFT_RULES = (
         pattern=r"\bN8R8\b",
         allowed=(
             "docs/07-decisions/ADR-0010-esp32-s3-n16r8-board.md",
+            "docs/07-decisions/ADR-0012-n8r2-bringup-target.md",
             "docs/02-hardware/board-and-pin-selection.md",
             "docs/05-procurement/bom.md",
             "docs/05-procurement/suppliers.md",
@@ -74,6 +75,21 @@ DRIFT_RULES = (
             "scripts/check_docs.py",
         ),
         hint="ADR-0010 locks the board to N16R8. N8R8 may only appear as an explicit rejected/backup alternative.",
+    ),
+    Drift(
+        label="devkit-variant",
+        pattern=r"\bN8R2\b",
+        allowed=(
+            "docs/07-decisions/ADR-0012-n8r2-bringup-target.md",
+            "docs/07-decisions/README.md",
+            "docs/06-testing/devkit-bring-up.md",
+            "docs/06-testing/test-log.md",
+            "docs/08-development-log/",
+            "firmware/README.md",
+            "scripts/check_docs.py",
+        ),
+        hint=("N8R2 is the bring-up devkit of ADR-0012, never the product board. "
+              "It may only appear where that distinction is being made."),
     ),
     Drift(
         label="charge-source",

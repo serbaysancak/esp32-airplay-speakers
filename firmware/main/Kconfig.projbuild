@@ -1,0 +1,19 @@
+menu "Harman Kardom board"
+
+config HK_BOARD_DEVKIT_N8R2
+    bool "Build for the ESP32-S3 N8R2 development kit"
+    default n
+    help
+        Build for the bring-up devkit on the bench (8 MB flash, 2 MB quad PSRAM)
+        instead of the N16R8 product board of ADR-0010.
+
+        This is not a product configuration. It changes the OTA hardware revision
+        from "prototype-n16r8" to "devkit-n8r2" so that a manifest published for
+        one board is refused by the other, and firmware/CMakeLists.txt refuses to
+        build it with application signing enabled so it can never be published.
+
+        Leave this off unless you are flashing the devkit. Setting it by hand
+        without also selecting the 8 MB flash size and the devkit partition table
+        is a configure-time error, not something you discover on the bench.
+
+endmenu

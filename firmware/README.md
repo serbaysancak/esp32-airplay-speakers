@@ -46,6 +46,37 @@ idf.py -C firmware -p /dev/tty.usbmodem* flash monitor
 OTA client compares it numerically and the release pipeline checks it against the
 Git tag.
 
+### The bring-up devkit
+
+The product board is not the only target. While it is unavailable, the firmware
+also builds for an ESP32-S3 **N8R2** development kit — 8 MB flash, 2 MB quad
+PSRAM — so the network and control paths can be exercised on real silicon
+(ADR-0012). It is a bring-up target and cannot ship.
+
+```bash
+idf.py -C firmware -B firmware/build-devkit \
+  -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.devkit" \
+  -D SDKCONFIG="$PWD/firmware/build-devkit/sdkconfig" \
+  build
+```
+
+The separate `-B` and `-D SDKCONFIG` are not tidiness. The two profiles disagree
+about flash size, PSRAM mode and the partition table, and ESP-IDF applies
+defaults only when it first writes an `sdkconfig` — sharing one would silently
+keep whichever profile was configured first, and that shows up as a board that
+does not boot rather than as a build error.
+
+Four settings define a board: flash size, PSRAM mode, partition table and OTA
+hardware revision. `CMakeLists.txt` refuses to configure a build in which they
+disagree, and refuses to sign a devkit build at all. On the board itself the boot
+report opens with the revision it was built for:
+
+```text
+hk: board       devkit-n8r2
+hk: flash       8 MB detected
+hk: psram       2 MB
+```
+
 ## Verify
 
 Three checks run without any hardware, and all three run in CI.
@@ -112,7 +143,9 @@ pin table stays a candidate until that happens.
 firmware/
   CMakeLists.txt        project definition; PROJECT_VER comes from version.txt
   sdkconfig.defaults    board, partition, PSRAM and rollback settings
+  sdkconfig.devkit      overlay for the N8R2 bring-up board (ADR-0012)
   partitions.csv        16 MB layout: dual OTA slots + isolated calibration
+  partitions-devkit.csv the same rows at 8 MB, identical below 0x20000
   version.txt           strict SemVer, compared by the OTA client
   main/                 app_main: boot report only at F0
   components/

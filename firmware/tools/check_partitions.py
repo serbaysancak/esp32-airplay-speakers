@@ -26,7 +26,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CSV = ROOT / "partitions.csv"
 
-#: ADR-0010 locks the board to a 16 MB part.
+#: ADR-0010 locks the product board to a 16 MB part. The bring-up devkit has 8 MB
+#: and its own table (partitions-devkit.csv); pass --flash-size to check that one.
+#: The default stays 16 MB so every existing caller keeps checking the product
+#: layout without being edited.
 FLASH_SIZE = 16 * 1024 * 1024
 
 #: An app partition offset must be aligned to this, a hardware requirement of
@@ -90,6 +93,22 @@ def parse_number(text: str) -> int:
     return int(text, 0)
 
 
+def parse_size(text: str) -> int:
+    """Accept the spellings a person actually types for a flash size.
+
+    ``8MB``, ``8M``, ``0x800000`` and ``8388608`` all mean the same thing. A bare
+    number is bytes, not megabytes: silently reading ``8`` as 8 MB would let a
+    typo produce a table that passes every rule while being 8 bytes long.
+    """
+    cleaned = text.strip()
+    if cleaned.lower().endswith("b") and not cleaned.lower().startswith("0x"):
+        cleaned = cleaned[:-1]
+    size = parse_number(cleaned)
+    if size <= 0:
+        raise ValueError(f"{text!r} is not a positive size")
+    return size
+
+
 def load(csv_path: Path) -> list[Partition]:
     partitions: list[Partition] = []
     for number, raw in enumerate(csv_path.read_text(encoding="utf-8").splitlines(), start=1):
@@ -107,7 +126,8 @@ def load(csv_path: Path) -> list[Partition]:
     return partitions
 
 
-def check(partitions: list[Partition], app_size: int | None) -> list[str]:
+def check(partitions: list[Partition], app_size: int | None,
+          flash_size: int = FLASH_SIZE) -> list[str]:
     problems: list[str] = []
     by_name = {p.name: p for p in partitions}
 
@@ -146,9 +166,9 @@ def check(partitions: list[Partition], app_size: int | None) -> list[str]:
                 f"{earlier.name} ends at 0x{earlier.end:x} but {later.name} starts at "
                 f"0x{later.offset:x}: they overlap")
 
-    if ordered and ordered[-1].end > FLASH_SIZE:
+    if ordered and ordered[-1].end > flash_size:
         problems.append(
-            f"table ends at 0x{ordered[-1].end:x}, past the {FLASH_SIZE // (1024 * 1024)} MB flash")
+            f"table ends at 0x{ordered[-1].end:x}, past the {flash_size // (1024 * 1024)} MB flash")
 
     for partition in partitions:
         if partition.kind == "app" and partition.offset % APP_ALIGNMENT:
@@ -191,14 +211,15 @@ def check(partitions: list[Partition], app_size: int | None) -> list[str]:
     return problems
 
 
-def report(partitions: list[Partition], app_size: int | None) -> None:
+def report(partitions: list[Partition], app_size: int | None,
+           flash_size: int = FLASH_SIZE) -> None:
     print(f"{'name':<14}{'type':<7}{'subtype':<10}{'offset':>12}{'size':>12}{'end':>12}")
     for partition in sorted(partitions, key=lambda p: p.offset):
         print(f"{partition.name:<14}{partition.kind:<7}{partition.subtype:<10}"
               f"0x{partition.offset:08x}  0x{partition.size:08x}  0x{partition.end:08x}")
     used = sum(p.size for p in partitions)
-    print(f"\nallocated {used} of {FLASH_SIZE} bytes "
-          f"({used / FLASH_SIZE:.1%}), {FLASH_SIZE - used} unallocated")
+    print(f"\nallocated {used} of {flash_size} bytes "
+          f"({used / flash_size:.1%}), {flash_size - used} unallocated")
     slot = next((p for p in partitions if p.name == "ota_0"), None)
     if slot and app_size is not None:
         free = slot.size - app_size
@@ -212,8 +233,19 @@ def main() -> int:
     parser.add_argument("--csv", type=Path, default=DEFAULT_CSV)
     parser.add_argument("--app-size", type=Path,
                         help="built application binary, to enforce the free-space gate")
+    parser.add_argument("--flash-size", default=None,
+                        help="flash size the table must fit, e.g. 8MB or 16MB "
+                             f"(default {FLASH_SIZE // (1024 * 1024)}MB, the product board)")
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args()
+
+    flash_size = FLASH_SIZE
+    if args.flash_size is not None:
+        try:
+            flash_size = parse_size(args.flash_size)
+        except ValueError as error:
+            print(f"ERROR: --flash-size: {error}", file=sys.stderr)
+            return 1
 
     try:
         partitions = load(args.csv)
@@ -228,9 +260,9 @@ def main() -> int:
             return 1
         app_size = args.app_size.stat().st_size
 
-    problems = check(partitions, app_size)
+    problems = check(partitions, app_size, flash_size)
     if not args.quiet:
-        report(partitions, app_size)
+        report(partitions, app_size, flash_size)
     for problem in problems:
         print(f"ERROR: {problem}", file=sys.stderr)
     print(f"\ncheck_partitions: {len(partitions)} partitions, {len(problems)} problems")

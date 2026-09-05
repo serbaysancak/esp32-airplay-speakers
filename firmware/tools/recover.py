@@ -35,6 +35,13 @@ import sys
 from pathlib import Path
 
 FIRMWARE = Path(__file__).resolve().parent.parent
+
+#: The product board's table (ADR-0010). The N8R2 bring-up devkit has its own,
+#: partitions-devkit.csv; pass --partitions to recover that board. The two tables
+#: agree on every offset below 0x20000, so the list of preserved regions is the
+#: same either way -- but the flash size is not, and writing a 16 MB image header
+#: onto an 8 MB part is exactly the kind of quiet wrongness this script exists to
+#: avoid. Hence the size is derived from the table below rather than typed here.
 PARTITIONS = FIRMWARE / "partitions.csv"
 
 #: Partitions this script must never write. Everything a user or a bench
@@ -46,10 +53,10 @@ class RecoveryError(Exception):
     """Something that must stop the flash rather than be worked around."""
 
 
-def read_offsets() -> dict[str, int]:
-    """Offsets from partitions.csv, so this script cannot drift from the table."""
+def read_offsets(partitions: Path = PARTITIONS) -> dict[str, int]:
+    """Offsets from the partition table, so this script cannot drift from it."""
     offsets: dict[str, int] = {}
-    with open(PARTITIONS, newline="", encoding="utf-8") as handle:
+    with open(partitions, newline="", encoding="utf-8") as handle:
         for row in csv.reader(handle):
             if not row or row[0].strip().startswith("#"):
                 continue
@@ -62,8 +69,50 @@ def read_offsets() -> dict[str, int]:
                 continue
     for required in ("otadata", "ota_0", *PRESERVE):
         if required not in offsets:
-            raise RecoveryError(f"{PARTITIONS.name} has no '{required}' partition")
+            raise RecoveryError(f"{partitions.name} has no '{required}' partition")
     return offsets
+
+
+def read_flash_size(partitions: Path = PARTITIONS) -> int:
+    """The flash size the table was drawn for, in bytes.
+
+    Taken as the first power of two that contains the last partition. Flash parts
+    come in powers of two, so this is exact for any table that fits its part, and
+    it stays correct for a table that deliberately leaves the top unallocated.
+
+    Derived rather than passed in because the alternative is a --flash-size flag
+    that can disagree with --partitions, and a disagreement here writes an image
+    header describing the wrong part: the upper half of a 16 MB image aliases onto
+    the lower half of an 8 MB one, so ota_1 lands on top of ota_0 and the board
+    still appears to flash successfully.
+    """
+    extent = 0
+    with open(partitions, newline="", encoding="utf-8") as handle:
+        for row in csv.reader(handle):
+            if not row or row[0].strip().startswith("#") or len(row) < 5:
+                continue
+            try:
+                end = int(row[3].strip(), 0) + parse_size(row[4].strip())
+            except ValueError:
+                continue
+            extent = max(extent, end)
+    if extent <= 0:
+        raise RecoveryError(f"{partitions.name} defines no sized partition")
+    size = 1 << (extent - 1).bit_length()
+    if size > 128 * 1024 * 1024:
+        raise RecoveryError(f"{partitions.name} extends to 0x{extent:x}, larger than any "
+                            "ESP32-S3 flash part")
+    return size
+
+
+def parse_size(text: str) -> int:
+    """The size spellings an ESP-IDF partition CSV may use: 0x1000, 4096, 4K, 1M."""
+    text = text.strip()
+    if text.lower().endswith("k"):
+        return int(text[:-1], 0) * 1024
+    if text.lower().endswith("m"):
+        return int(text[:-1], 0) * 1024 * 1024
+    return int(text, 0)
 
 
 def plan(build: Path, image: str, offsets: dict[str, int]) -> list[tuple[int, Path]]:
@@ -109,12 +158,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--image", default="harman-kardom.bin",
                         help="application image within the build directory")
     parser.add_argument("--baud", default="460800")
+    parser.add_argument("--partitions", type=Path, default=PARTITIONS,
+                        help="partition table describing the board being recovered "
+                             "(default: the product table; use partitions-devkit.csv "
+                             "for the N8R2 bring-up board)")
     parser.add_argument("--dry-run", action="store_true",
                         help="print the command without running it")
     args = parser.parse_args(argv)
 
     try:
-        offsets = read_offsets()
+        offsets = read_offsets(args.partitions)
+        flash_size = read_flash_size(args.partitions)
         build = FIRMWARE / args.build
         items = plan(build, args.image, offsets)
         check_no_overlap(items, offsets)
@@ -127,10 +181,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.port:
         command += ["--port", args.port]
     command += ["write_flash", "--flash_mode", "dio",
-                "--flash_size", "16MB", "--flash_freq", "80m"]
+                "--flash_size", f"{flash_size // (1024 * 1024)}MB",
+                "--flash_freq", "80m"]
     for offset, path in items:
         command += [f"0x{offset:x}", str(path)]
 
+    print(f"Table {args.partitions.name}, {flash_size // (1024 * 1024)} MB flash.")
     print("Writing only the boot regions. These are left untouched:")
     for name in PRESERVE:
         print(f"  0x{offsets[name]:06x}  {name}")

@@ -147,6 +147,60 @@ class TestBuildManifest(unittest.TestCase):
         self.assertTrue(all(c in "0123456789abcdef" for c in digest))
 
 
+class TestBoardSlotSize(unittest.TestCase):
+    """The slot an image must fit belongs to the board, not to a default.
+
+    There are two boards now: the N16R8 product board and the N8R2 bring-up
+    devkit, whose OTA slot is less than half the size. A single hard-coded
+    default meant a devkit image was measured against a slot 76% larger than the
+    flash it was going to, so the one gate standing between an oversized image
+    and a bricked update would have passed it.
+    """
+
+    def test_every_board_the_firmware_knows_has_a_slot_size(self):
+        # hk_identity.h and this table must name the same boards. A board that
+        # exists in the firmware but not here cannot be published at all.
+        self.assertIn("prototype-n16r8", make_manifest.BOARD_SLOT_SIZE)
+        self.assertIn("devkit-n8r2", make_manifest.BOARD_SLOT_SIZE)
+
+    def test_each_slot_size_matches_that_board_s_partition_table(self):
+        firmware = Path(__file__).resolve().parent.parent
+        tables = {
+            "prototype-n16r8": firmware / "partitions.csv",
+            "devkit-n8r2": firmware / "partitions-devkit.csv",
+        }
+        for revision, table in tables.items():
+            with self.subTest(revision=revision):
+                row = [line for line in table.read_text(encoding="utf-8").splitlines()
+                       if line.startswith("ota_0,")]
+                self.assertEqual(len(row), 1, f"{table.name} has no single ota_0 row")
+                size = int(row[0].split(",")[4].strip(), 0)
+                self.assertEqual(make_manifest.BOARD_SLOT_SIZE[revision], size,
+                                 f"{table.name} and BOARD_SLOT_SIZE disagree")
+
+    def test_an_unknown_board_is_refused_rather_than_given_a_default(self):
+        code = make_manifest.main([
+            "--image", str(self.image), "--tag", "v0.1.0",
+            "--asset-url", "https://example.invalid/a.bin",
+            "--hw-revision", "some-other-board",
+        ])
+        self.assertEqual(code, 1)
+
+    def test_a_slot_size_that_contradicts_the_board_is_refused(self):
+        code = make_manifest.main([
+            "--image", str(self.image), "--tag", "v0.1.0",
+            "--asset-url", "https://example.invalid/a.bin",
+            "--hw-revision", "devkit-n8r2", "--slot-size", "0x6e0000",
+        ])
+        self.assertEqual(code, 1)
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.image = Path(self.tmp.name) / "app.bin"
+        self.image.write_bytes(make_image(version="0.1.0"))
+
+
 class TestGeneratorAgreesWithFirmware(unittest.TestCase):
     """The two ends of the contract, checked against each other.
 

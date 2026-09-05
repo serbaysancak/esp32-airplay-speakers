@@ -119,6 +119,17 @@ def parse_size(text: str) -> int:
     return int(text, 0)
 
 
+#: OTA slot size per board, taken from that board's partition table. The manifest
+#: refuses an image that cannot fit the slot it is destined for, and "the slot" is
+#: a property of the board -- so it is looked up from the hardware revision rather
+#: than defaulted to the product's. A devkit image checked against the product's
+#: 0x6e0000 slot would pass a gate 76% larger than the flash it is going to.
+BOARD_SLOT_SIZE = {
+    "prototype-n16r8": 0x6E0000,   # firmware/partitions.csv
+    "devkit-n8r2": 0x2E0000,       # firmware/partitions-devkit.csv
+}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image", required=True)
@@ -127,9 +138,26 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--channel", default="stable")
     parser.add_argument("--hw-revision", default="prototype-n16r8")
     parser.add_argument("--min-updater-version", default="0.1.0")
-    parser.add_argument("--slot-size", type=parse_size, default=0x6E0000)
+    parser.add_argument("--slot-size", type=parse_size, default=None,
+                        help="OTA slot the image must fit; defaults to the slot of "
+                             "the board named by --hw-revision")
     parser.add_argument("--out")
     args = parser.parse_args(argv)
+
+    known = BOARD_SLOT_SIZE.get(args.hw_revision)
+    if args.slot_size is None:
+        if known is None:
+            print(f"error: --hw-revision {args.hw_revision!r} is not a board this "
+                  f"script knows a slot size for; pass --slot-size explicitly or add "
+                  f"the board to BOARD_SLOT_SIZE", file=sys.stderr)
+            return 1
+        args.slot_size = known
+    elif known is not None and args.slot_size != known:
+        # Both were given and they disagree. One of them is wrong and there is no
+        # way to tell which, so neither is used.
+        print(f"error: --slot-size 0x{args.slot_size:x} does not match the "
+              f"0x{known:x} slot of {args.hw_revision}", file=sys.stderr)
+        return 1
 
     try:
         manifest = build_manifest(args)

@@ -1,0 +1,45 @@
+# Harman Kardom partition table - ESP32-S3 N8R2 DEVELOPMENT KIT, 8 MB flash.
+#
+# THIS IS NOT THE PRODUCT TABLE. The product board is N16R8 with 16 MB flash and
+# its table is partitions.csv (ADR-0010). This one exists only so the firmware can
+# be brought up on the devkit that is physically on the bench while the real board
+# is not here yet. An image built against this table must never reach a product
+# board: the OTA hardware revision differs (see main/Kconfig.projbuild), which is
+# what actually stops it.
+#
+# Everything below 0x20000 is byte-for-byte identical to partitions.csv, and that
+# is deliberate rather than tidy:
+#   - tools/recover.py preserves nvs / nvs_keys / factory_cal / phy_init by reading
+#     their offsets out of a CSV, so identical offsets mean one recovery procedure
+#     covers both boards
+#   - a flash dump taken from one layout can have its NVS restored into the other
+#   - the calibration wall (PRD-008) sits at the same address on both, so the thing
+#     being tested here is the thing that ships
+#
+# Only the application slots shrink. Arithmetic, so the next person does not have
+# to redo it:
+#
+#   usable after factory_cal   0x800000 - 0x20000 = 0x7e0000  (8,257,536 bytes)
+#   two equal slots            2 x 0x2e0000       = 0x5c0000  (6,029,312 bytes)
+#   storage                         0x220000                  (2,228,224 bytes)
+#   total                      0x5c0000 + 0x220000 = 0x7e0000  -> exact, 0 unallocated
+#
+#   slot size                  0x2e0000 = 3,014,656 bytes
+#   30% free gate (ADR-0008)   max application = 2,110,259 bytes
+#   F0 build 2026-09-05        1,310,480 bytes -> 56.5% free
+#
+# The 30% margin is the product rule and it is NOT relaxed here. If the AirPlay
+# stack ever pushes past 2,110,259 bytes the answer is to say so, not to shave the
+# margin: that margin is the reason a release can still be rolled back.
+#
+# tools/check_partitions.py --csv partitions-devkit.csv --flash-size 8MB
+#
+# Name,         Type, SubType,  Offset,    Size,      Flags
+nvs,            data, nvs,      0x9000,    0x6000,
+otadata,        data, ota,      0xf000,    0x2000,
+phy_init,       data, phy,      0x11000,   0x1000,
+nvs_keys,       data, nvs_keys, 0x12000,   0x1000,    encrypted
+factory_cal,    data, nvs,      0x13000,   0xd000,
+ota_0,          app,  ota_0,    0x20000,   0x2e0000,
+ota_1,          app,  ota_1,    0x300000,  0x2e0000,
+storage,        data, spiffs,   0x5e0000,  0x220000,

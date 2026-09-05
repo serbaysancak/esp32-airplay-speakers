@@ -1,5 +1,7 @@
-# ESP-IDF build output
+# ESP-IDF build output. build-devkit/ is the N8R2 bring-up target; its generated
+# sdkconfig lives inside it precisely so it can never overwrite the product one.
 build/
+build-devkit/
 sdkconfig
 sdkconfig.old
 managed_components/

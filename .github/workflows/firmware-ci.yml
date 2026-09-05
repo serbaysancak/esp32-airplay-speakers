@@ -73,6 +73,13 @@ jobs:
           python-version: '3.11'
       - name: check partition table
         run: python3 firmware/tools/check_partitions.py
+      - name: check the devkit partition table
+        # The N8R2 bring-up board has its own 8 MB table. Checking it against the
+        # default 16 MB would accept a table that runs off the end of the part,
+        # which is the one mistake this file cannot afford to make twice.
+        run: |
+          python3 firmware/tools/check_partitions.py \
+            --csv firmware/partitions-devkit.csv --flash-size 8MB
       - name: test the partition validator itself
         run: python3 firmware/tools/test_check_partitions.py
       - name: test the USB recovery script
@@ -135,6 +142,26 @@ jobs:
         run: |
           python3 firmware/tools/check_partitions.py \
             --app-size firmware/build/harman-kardom.bin
+      # The bring-up devkit is a second real target, and the four settings that
+      # define a board (flash size, PSRAM mode, partition table, OTA hardware
+      # revision) are held together by configure-time guards in
+      # firmware/CMakeLists.txt. Those guards are only exercised by configuring
+      # the devkit profile, so a change that breaks them is invisible until
+      # someone at a bench cannot build. It is also the tighter size gate: the
+      # devkit slot is 0x2e0000 against the product's 0x6e0000.
+      - name: build the bring-up devkit profile
+        shell: bash
+        run: |
+          . $IDF_PATH/export.sh
+          idf.py -C firmware -B firmware/build-devkit \
+            -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.devkit" \
+            -D SDKCONFIG="$PWD/firmware/build-devkit/sdkconfig" \
+            build
+          grep -qx 'CONFIG_HK_BOARD_DEVKIT_N8R2=y' firmware/build-devkit/sdkconfig \
+            || { echo "the devkit profile did not select the devkit board"; exit 1; }
+          python3 firmware/tools/check_partitions.py \
+            --csv firmware/partitions-devkit.csv --flash-size 8MB \
+            --app-size firmware/build-devkit/harman-kardom.bin
       # The host suite again, this time with ESP-IDF present so cJSON exists
       # and the manifest parser plus the generator/validator bridge actually
       # run. Without this the parser would be tested nowhere.

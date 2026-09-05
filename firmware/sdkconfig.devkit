@@ -1,0 +1,43 @@
+# Harman Kardom overlay for the ESP32-S3 N8R2 DEVELOPMENT KIT.
+#
+# Applied on top of sdkconfig.defaults, never instead of it:
+#
+#   idf.py -C firmware -B firmware/build-devkit \
+#          -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.devkit" \
+#          -D SDKCONFIG=sdkconfig.devkit.generated build
+#
+# Only the lines that are physically wrong for this silicon are here. Everything
+# else - FreeRTOS tick, NimBLE, the certificate bundle, the warning policy - is
+# shared with the product build on purpose, because a development target that
+# quietly differs in those is not testing the product.
+#
+# The board on the bench, read off the chip rather than off a sticker:
+#   ESP32-S3 (QFN56) rev v0.2, MAC a4:cb:8f:9b:06:c4
+#   Features: WiFi, BLE, Embedded PSRAM 2MB (AP_3v3)   -> quad, in package
+#   Detected flash size 8MB, eFuse flash type quad, eFuse flash voltage 3.3V
+#
+# ADR-0010 keeps N16R8 as the product board. This file does not reopen that
+# decision and cannot ship: main/Kconfig.projbuild ties it to a different OTA
+# hardware revision and the CMake guard refuses to sign it.
+
+# --- 8 MB instead of 16 MB. The bootloader writes the flash size into the image
+#     header; getting it wrong makes the second half of flash read back as the
+#     first, which corrupts ota_1 silently rather than loudly.
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+
+# --- PSRAM is 2 MB QUAD inside the package, not 8 MB OCTAL on a second die.
+#     Octal mode on quad hardware does not fail at init; esp_psram reports a size
+#     and the memory test passes on the pins that happen to answer, so this is
+#     exactly the kind of mistake that surfaces later as random heap corruption.
+#     Type stays SPIRAM_TYPE_AUTO (the IDF default): the size is detected.
+CONFIG_SPIRAM_MODE_QUAD=y
+CONFIG_SPIRAM_SPEED_80M=y
+
+# --- Half-sized application slots, same low region. See partitions-devkit.csv
+#     for the arithmetic and for why the offsets below 0x20000 do not move.
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions-devkit.csv"
+
+# --- Board identity, so an OTA cannot cross between the devkit and a product
+#     board in either direction. hk_manifest refuses a manifest whose
+#     hw_revision is not the running device's, and this is what makes them differ.
+CONFIG_HK_BOARD_DEVKIT_N8R2=y

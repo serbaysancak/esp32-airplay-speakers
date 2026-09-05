@@ -9,6 +9,16 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 2.6.2
+  espressif/led_strip:
+    component_hash: 28621486f77229aaf81c71f5e15d6fbf36c2949cf11094e07090593e659e7639
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 3.0.3
   espressif/libsodium:
     component_hash: d4066b373fc6d4c5196db42aeea7faef4ac7f3080af96c2b74e2476c08b78dc1
     dependencies:
@@ -35,8 +45,9 @@ dependencies:
     version: 5.5.1
 direct_dependencies:
 - espressif/esp_audio_codec
+- espressif/led_strip
 - espressif/libsodium
 - espressif/mdns
-manifest_hash: c38ff57a900b39cba17ef48c8015c0dabb831ac015bf2d625fe40f7a65c40907
+manifest_hash: 3b7fdd70a1e3b46717142477bafc5fa25b74f608b1b0a7eda36bb00bb970af95
 target: esp32s3
 version: 2.0.0

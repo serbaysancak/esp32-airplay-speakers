@@ -260,11 +260,20 @@ static esp_err_t start_provisioning(void)
         .verifier_len = (uint16_t)s_verifier_len,
     };
 
-    /* service_key is the SoftAP password. NULL leaves the setup network open,
-     * which the captive-portal flow needs; the session itself is protected by
-     * Security 2, so the password never crosses in clear text. */
+    /* The service name is what the user has to find, and it differs per
+     * transport: a Wi-Fi SSID for SoftAP, a BLE advertised name for BLE. Both
+     * are also written into the QR codes the provisioning apps scan, so passing
+     * one where the other belongs does not fail loudly -- it produces a QR that
+     * searches for a device nobody is advertising.
+     *
+     * service_key is the SoftAP password. NULL leaves the setup network open;
+     * the session itself is protected by Security 2, so the Wi-Fi password
+     * never crosses in clear text. It is meaningless for BLE. */
+    const char *service_name = (s_scheme == HK_NET_SCHEME_BLE)
+                                   ? s_identity.ble
+                                   : s_identity.softap;
     return wifi_prov_mgr_start_provisioning(WIFI_PROV_SECURITY_2, &security_params,
-                                            s_identity.softap, NULL);
+                                            service_name, NULL);
 }
 
 hk_net_scheme_t hk_network_scheme_for(bool has_credentials)
@@ -274,7 +283,15 @@ hk_net_scheme_t hk_network_scheme_for(bool has_credentials)
      * opens BLE, because a SoftAP would push the user's phone off the network
      * they are on. Clearing credentials with a 5 s hold returns them to the
      * SoftAP case, which is how the app-less route stays available. */
+#if CONFIG_HK_DEVKIT_FIRST_BOOT_BLE
+    /* Bench only, and not a change to that rule. The devkit has no button, so
+     * the transport a press would open cannot be reached on it any other way --
+     * and a transport nothing can reach is a transport nothing can test. */
+    (void)has_credentials;
+    return HK_NET_SCHEME_BLE;
+#else
     return has_credentials ? HK_NET_SCHEME_BLE : HK_NET_SCHEME_SOFTAP;
+#endif
 }
 
 static esp_err_t init_provisioning_manager(void)
@@ -405,13 +422,28 @@ esp_err_t hk_network_start(hk_net_status_cb_t callback, void *context)
 
     /* The manager is needed just to answer "are we provisioned?", and the
      * answer decides the scheme. It is initialised with SoftAP for that query
-     * and reinitialised below if BLE turns out to be the right transport. */
-    s_scheme = HK_NET_SCHEME_SOFTAP;
+     * and genuinely reinitialised if the answer names the other.
+     *
+     * The reinitialisation is not a formality. wifi_prov_mgr_init() binds the
+     * transport, and starting provisioning afterwards runs whatever it was
+     * bound to -- not what s_scheme says. Skipping it produces a device that
+     * logs "provisioning open over ble" while advertising a SoftAP, which is
+     * the worst kind of wrong: every surface agrees except the radio. This
+     * comment used to promise the reinitialisation while the code did not do
+     * it, and the bug stayed hidden only because the unprovisioned case
+     * happened to want the scheme the query had already installed. */
+    const hk_net_scheme_t query_scheme = HK_NET_SCHEME_SOFTAP;
+    s_scheme = query_scheme;
     ESP_RETURN_ON_ERROR(init_provisioning_manager(), TAG, "prov mgr init");
 
     bool provisioned = false;
     ESP_RETURN_ON_ERROR(wifi_prov_mgr_is_provisioned(&provisioned), TAG, "is provisioned");
     s_scheme = hk_network_scheme_for(provisioned);
+
+    if (!provisioned && s_scheme != query_scheme) {
+        wifi_prov_mgr_deinit();
+        ESP_RETURN_ON_ERROR(init_provisioning_manager(), TAG, "prov mgr reinit");
+    }
 
     if (provisioned) {
         /* Nothing to set up. Release the manager and just join. */

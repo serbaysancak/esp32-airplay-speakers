@@ -603,6 +603,21 @@ static void on_button(hk_button_event_t event, void *context)
 }
 
 /** Mirror the network layer's state onto the status LED. */
+#if CONFIG_HK_AIRPLAY
+/**
+ * Playback started or stopped.
+ *
+ * The LED has one owner, and this is how a fact from another subsystem reaches
+ * it: hk_ui arbitrates, so playback can never outrank a fault. The precedence
+ * lives in hk_led, not here.
+ */
+static void on_airplay_state(bool playing, void *context)
+{
+    (void)context;
+    hk_ui_set_playing(playing);
+}
+#endif
+
 static void on_network_status(const hk_net_status_t *network, void *context)
 {
     (void)context;
@@ -764,7 +779,7 @@ void app_main(void)
              * cannot receive AirPlay is still a speaker that can be reached,
              * updated and reset, and taking the device down would remove the
              * only way to fix it. */
-            (void)hk_airplay_start();
+            (void)hk_airplay_start(on_airplay_state, NULL);
         }
 #endif
 

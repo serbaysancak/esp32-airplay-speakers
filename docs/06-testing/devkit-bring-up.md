@@ -158,6 +158,34 @@ Ayrıca `storage user=write_defaults calibration=use`: kalibrasyon bölümü art
 
 **Bir Wi-Fi ağına katılma bu yolla henüz tamamlanmadı** — parola cihaz sahibine ait ve bu oturumda hiçbir yere girilmedi.
 
+## BLE provisioning hiç yayın yapmıyordu
+
+Kullanıcı, Espressif'in hem SoftAP hem BLE provisioning uygulamasıyla denedi; cihaz **BLE'de hiç görünmedi**, QR'sız listeden de bulunamadı. Seri logda karşılığı vardı ve gözden kaçmıştı: `wifi_prov_mgr: Provisioning started with service name` satırı var, ama **NimBLE'dan tek satır yok**.
+
+Kök neden `hk_network_start()`'ta. Yönetici, "provisioned mı?" sorusunu sorabilmek için SoftAP şemasıyla kuruluyor, sonra `s_scheme` BLE'ye çevriliyor — ve yöneticiyi yeniden kurması gereken adım hiç yazılmamış. Üstelik kodun kendi yorumu "reinitialised below if BLE turns out to be the right transport" diyordu. `wifi_prov_mgr_init()` taşımayı bağlar; sonrasında başlatılan şey `s_scheme`'in söylediği değil, bağlanmış olandır.
+
+Sonuç: cihaz `provisioning open over ble` yazarken SoftAP yayınlıyordu. Log dışında her yüzey tutarlıydı; yalnız radyo değil.
+
+Bu kusur depoda baştan beri duruyordu ve ADR-0005'in kuralı o kod yolunda zaten SoftAP istediği için hiç görünmemişti. Buton yolu (`hk_network_open_provisioning`) doğruydu — şemayı önce seçip yöneticiyi ona göre kuruyor.
+
+Düzeltmeden sonra ölçülen:
+
+```text
+wifi_prov_scheme_ble: BT memory released
+BLE_INIT: BT controller compile version [2edb0b0]
+protocomm_nimble: BLE Host Task Started
+NimBLE: GAP procedure initiated: advertise;
+wifi_prov_mgr: Provisioning started with service name : HarmanKardom-06C4
+```
+
+Aynı turda ikinci bir kusur: `wifi_prov_mgr_start_provisioning` her iki taşımada da SoftAP adını geçiyordu. BLE `HarmanKardom-Setup-06C4` diye yayın yaparken QR `HarmanKardom-06C4` arıyordu — yani QR'lı kurulum hiçbir zaman eşleşemezdi. Taşımaya göre doğru ad geçiliyor artık.
+
+**Bir Apple cihazının bu yayına bağlandığı hâlâ doğrulanmadı.** Kanıtlanan, yayının var olduğu.
+
+## Kart üzerindeki durum LED'i
+
+Geliştirme kartında harici RGB LED'in bağlı olduğu pinlerde hiçbir şey yok, yani cihazın durumu yalnız seri konsoldan okunabiliyordu. `hk_ui` artık aynı render geçişinin ürettiği değerleri kartın kendi adreslenebilir LED'ine de yazıyor (`gpio48`, Kconfig ile değiştirilebilir). Ayna, ikinci bir gösterge değil: renk aynı hesaptan geliyor, dolayısıyla ikisi birbiriyle çelişemez.
+
 ## Bu kartta kanıtlanamayacak olanlar
 
 - `G7` dört cihaz senkronu: tek kart var.

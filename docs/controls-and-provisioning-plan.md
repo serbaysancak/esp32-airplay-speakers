@@ -120,10 +120,14 @@ Tek gövdeli, ortak katot RGB LED ve her renk için ayrı seri direnç kullanıl
 | Mavi nefes | BLE/SoftAP provisioning aktif |
 | Sarı yavaş yanıp sönme | Wi-Fi ağına bağlanıyor |
 | Yeşil 3 sn, sonra sönük | Wi-Fi bağlı ve AirPlay hazır |
-| Mor düşük parlaklık | Aktif AirPlay oynatma |
+| Mor nefes, düşük parlaklık | Aktif AirPlay oynatma |
 | Camgöbeği yanıp sönme | OTA güncelleme; güç kesilmemeli |
 | Kırmızı yavaş | Batarya düşük |
 | Kırmızı hızlı | Wi-Fi, ses veya batarya hatası |
+
+> **2026-09-05 — hangi satırlar gerçekten sürülüyor.** Tablo baştan beri eksiksizdi ve `hk_led` her satırı uygulamıştı, ama iki durumu hiçbir yer set etmiyordu: `playing` ve `battery_low`. Oynatma durumu bu tarihte bağlandı — AirPlay yığınının kendi RTSP olayları `hk_main` üzerinden `hk_ui`'ya taşınıyor, LED'in tek sahibi `hk_ui` kalmaya devam ediyor. Sahibi "mor nefes" istediği için desen `SOLID`'den `BREATHE`'e alındı ve satır buna göre güncellendi.
+>
+> `battery_low` hâlâ ölü ve yazılımla açılamaz: ADC sürücüsü yok ve eşikler `G3`/`G4` ölçümlerine bağlı. Uydurma bir eşikle yakmak, batarya göstergesini güvenilmez yapardı.
 
 LED animasyonları audio task üzerinde çalışmayacak; düşük öncelikli ayrı görev/timer kullanılacak. PWM veya GPIO güncellemelerinin I2S zamanlamasına ve analog dip gürültüsüne etkisi ölçülecek.
 

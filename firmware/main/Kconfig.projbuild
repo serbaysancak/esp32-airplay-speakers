@@ -16,6 +16,42 @@ config HK_BOARD_DEVKIT_N8R2
         without also selecting the 8 MB flash size and the devkit partition table
         is a configure-time error, not something you discover on the bench.
 
+config HK_DEVKIT_STATUS_LED
+    bool "Mirror the status LED onto the devkit's on-board addressable LED"
+    depends on HK_BOARD_DEVKIT_N8R2
+    default y
+    help
+        The product board's indicator is three PWM channels driving an external
+        RGB LED (ADR-0011). A bare devkit has nothing on those pins, so it shows
+        no status at all -- every state has to be read off the serial console.
+
+        This mirrors exactly what those channels are told to do onto the single
+        addressable LED the devkit already carries. It is a mirror, not a second
+        indicator: the colour comes from the same render pass, so the two cannot
+        disagree about what the device is doing.
+
+config HK_DEVKIT_STATUS_LED_GPIO
+    int "GPIO of the devkit's on-board addressable LED"
+    depends on HK_DEVKIT_STATUS_LED
+    default 48
+    help
+        48 on ESP32-S3-DevKitC-1 v1.1 and later, 38 on some earlier boards and
+        on several third-party clones. If the LED stays dark, this is the first
+        thing to check.
+
+config HK_DEVKIT_FIRST_BOOT_BLE
+    bool "Open BLE instead of SoftAP when the devkit has no credentials"
+    depends on HK_BOARD_DEVKIT_N8R2
+    default y
+    help
+        ADR-0005 sends a device with nothing stored to SoftAP, and one that
+        already works to BLE on a button press. The devkit has no button, so
+        under that rule its BLE transport can never be reached, and a transport
+        that cannot be reached cannot be tested.
+
+        Turn this off to exercise the SoftAP path on the devkit instead. It
+        changes nothing on the product board.
+
 config HK_DEVKIT_WIFI_SSID
     string "Bench Wi-Fi SSID to preload (empty: do not preload)"
     depends on HK_BOARD_DEVKIT_N8R2

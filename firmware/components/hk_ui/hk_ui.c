@@ -11,6 +11,10 @@
 
 #include "hk_pins.h"
 
+#if CONFIG_HK_DEVKIT_STATUS_LED
+#include "led_strip.h"
+#endif
+
 static const char *TAG = "hk_ui";
 
 /* 10 bits at 25 kHz: the APB clock is 80 MHz, so 80e6 / 25e3 = 3200 counts are
@@ -23,6 +27,36 @@ static const char *TAG = "hk_ui";
 #define HK_UI_TASK_PRIO  2
 
 static TaskHandle_t s_task;
+
+#if CONFIG_HK_DEVKIT_STATUS_LED
+static led_strip_handle_t s_strip;
+
+/** Bring up the devkit's on-board LED. Never fatal: it is a mirror. */
+static void start_onboard_mirror(void)
+{
+    const led_strip_config_t strip = {
+        .strip_gpio_num = CONFIG_HK_DEVKIT_STATUS_LED_GPIO,
+        .max_leds = 1,
+        .led_model = LED_MODEL_WS2812,
+        .color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_GRB,
+    };
+    const led_strip_rmt_config_t rmt = {
+        .clk_src = RMT_CLK_SRC_DEFAULT,
+        .resolution_hz = 10 * 1000 * 1000,
+    };
+    const esp_err_t err = led_strip_new_rmt_device(&strip, &rmt, &s_strip);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "on-board LED on gpio%d did not start: %s. The external RGB "
+                      "channels are unaffected.",
+                 CONFIG_HK_DEVKIT_STATUS_LED_GPIO, esp_err_to_name(err));
+        s_strip = NULL;
+        return;
+    }
+    (void)led_strip_clear(s_strip);
+    ESP_LOGI(TAG, "on-board status LED mirrored on gpio%d",
+             CONFIG_HK_DEVKIT_STATUS_LED_GPIO);
+}
+#endif
 
 typedef struct {
     ledc_channel_t channel;
@@ -100,13 +134,36 @@ static void render(const hk_led_pattern_t *pattern, uint32_t time_ms)
 {
     uint32_t env = envelope(pattern, time_ms);
     const uint8_t component[3] = {pattern->red, pattern->green, pattern->blue};
+    uint32_t duty[3];
 
     for (int i = 0; i < 3; i++) {
-        uint32_t duty = duty_for(component[i], env, pattern->brightness);
+        duty[i] = duty_for(component[i], env, pattern->brightness);
         /* Common cathode: a higher duty is brighter, and zero is off. */
-        ledc_set_duty(LEDC_LOW_SPEED_MODE, LED_CHANNELS[i].channel, duty);
+        ledc_set_duty(LEDC_LOW_SPEED_MODE, LED_CHANNELS[i].channel, duty[i]);
         ledc_update_duty(LEDC_LOW_SPEED_MODE, LED_CHANNELS[i].channel);
     }
+
+#if CONFIG_HK_DEVKIT_STATUS_LED
+    /* The same values, on the LED the devkit actually has.
+     *
+     * Taken from `duty` rather than recomputed from the pattern: a second
+     * computation is a second thing to keep in step, and the whole point of a
+     * mirror is that it cannot disagree with what it mirrors. The duties are
+     * already gamma-corrected and brightness-scaled, so they only need to come
+     * back down from the PWM range to the driver's 8 bits.
+     *
+     * Failures are ignored. This is a diagnostic surface on a bench board; a
+     * board that cannot show its state is still a board that works, and taking
+     * the UI task down over it would remove the LED and the button at once. */
+    if (s_strip != NULL) {
+        (void)led_strip_set_pixel(s_strip,
+                                  0,
+                                  (duty[0] * 255u) / HK_UI_DUTY_MAX,
+                                  (duty[1] * 255u) / HK_UI_DUTY_MAX,
+                                  (duty[2] * 255u) / HK_UI_DUTY_MAX);
+        (void)led_strip_refresh(s_strip);
+    }
+#endif
 }
 
 static void ui_task(void *arg)
@@ -194,6 +251,10 @@ esp_err_t hk_ui_start(hk_ui_event_cb_t callback, void *context)
             return err;
         }
     }
+
+#if CONFIG_HK_DEVKIT_STATUS_LED
+    start_onboard_mirror();
+#endif
 
     /* Read the button before anything else so a boot-time hold is seen. */
     s_recovery = button_pressed();

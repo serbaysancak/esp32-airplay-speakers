@@ -56,8 +56,12 @@ static const hk_led_pattern_t PATTERNS[] = {
     [HK_LED_PROVISIONING] = {0,   80,  255, HK_LED_ANIM_BREATHE, 2000, HK_LED_BRIGHTNESS_NORMAL},
     [HK_LED_CONNECTING]   = {255, 200, 0,   HK_LED_ANIM_BLINK_SLOW, 1000, HK_LED_BRIGHTNESS_NORMAL},
     [HK_LED_READY]        = {0,   255, 60,  HK_LED_ANIM_SOLID,      0, HK_LED_BRIGHTNESS_NORMAL},
-    /* Playing is the long-lived state in a dark room, so it is the dimmest. */
-    [HK_LED_PLAYING]      = {160, 0,   255, HK_LED_ANIM_SOLID,      0, HK_LED_BRIGHTNESS_AMBIENT},
+    /* Playing is the long-lived state in a dark room, so it is the dimmest, and
+     * it breathes slowly rather than sitting still: a steady dot reads as a
+     * standby lamp, while a slow rise and fall reads as something running.
+     * Slower than the boot and provisioning breathe, because those are asking
+     * to be watched and this one is not. */
+    [HK_LED_PLAYING]      = {160, 0,   255, HK_LED_ANIM_BREATHE, 3000, HK_LED_BRIGHTNESS_AMBIENT},
     [HK_LED_OTA]          = {0,   220, 255, HK_LED_ANIM_BLINK_SLOW, 800, HK_LED_BRIGHTNESS_ALERT},
     [HK_LED_BATTERY_LOW]  = {255, 0,   0,   HK_LED_ANIM_BLINK_SLOW, 2000, HK_LED_BRIGHTNESS_NORMAL},
     [HK_LED_ERROR]        = {255, 0,   0,   HK_LED_ANIM_BLINK_FAST, 250, HK_LED_BRIGHTNESS_ALERT},

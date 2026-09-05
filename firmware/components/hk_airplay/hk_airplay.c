@@ -37,6 +37,7 @@
 #include "mdns_airplay.h"
 #include "playback_control.h"
 #include "ptp_clock.h"
+#include "rtsp_events.h"
 #include "rtsp_server.h"
 #include "settings.h"
 
@@ -56,7 +57,41 @@ _Static_assert(CONFIG_I2S_WS_IO == HK_PIN_I2S_LRCLK,
 _Static_assert(CONFIG_I2S_DO_IO == HK_PIN_I2S_DATA,
                "AirPlay data output does not match hk_pins");
 
-static bool s_running;
+static bool                  s_running;
+static hk_airplay_state_cb_t s_on_state;
+static void                 *s_state_context;
+
+/**
+ * Translate the receiver's own events into one bit: is audio playing.
+ *
+ * CLIENT_CONNECTED is deliberately not playing. A phone that has selected this
+ * speaker but not started a track has a session open and no audio in it, and a
+ * status light that says otherwise is a light that has to be distrusted.
+ *
+ * Runs on the RTSP task, so it does nothing but forward.
+ */
+static void on_rtsp_event(rtsp_event_t event, const rtsp_event_data_t *data,
+                          void *user_data)
+{
+    (void)data;
+    (void)user_data;
+    if (s_on_state == NULL) {
+        return;
+    }
+    switch (event) {
+    case RTSP_EVENT_PLAYING:
+        s_on_state(true, s_state_context);
+        break;
+    case RTSP_EVENT_PAUSED:
+    case RTSP_EVENT_DISCONNECTED:
+        s_on_state(false, s_state_context);
+        break;
+    case RTSP_EVENT_CLIENT_CONNECTED:
+    case RTSP_EVENT_METADATA:
+    default:
+        break;
+    }
+}
 
 /**
  * Whether this build may clock the I2S pins at all.
@@ -108,11 +143,13 @@ static void publish_device_name(void)
     }
 }
 
-esp_err_t hk_airplay_start(void)
+esp_err_t hk_airplay_start(hk_airplay_state_cb_t on_state, void *context)
 {
     if (s_running) {
         return ESP_ERR_INVALID_STATE;
     }
+    s_on_state = on_state;
+    s_state_context = context;
     if (!audio_may_run()) {
         ESP_LOGE(TAG, "not starting: this board has no driver-protection profile, "
                       "and the receiver drives I2S. G0/G2 come first.");
@@ -167,6 +204,14 @@ esp_err_t hk_airplay_start(void)
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "rtsp server: %s", esp_err_to_name(err));
         return err;
+    }
+
+    if (s_on_state != NULL && rtsp_events_register(on_rtsp_event, NULL) != 0) {
+        /* Not fatal. The receiver works; only the status light goes quiet, and
+         * a speaker that plays without lighting up is better than one that
+         * refuses to start because it could not light up. */
+        ESP_LOGW(TAG, "no room to listen for playback events; the status LED "
+                      "will not show playback");
     }
 
     playback_control_set_source(PLAYBACK_SOURCE_AIRPLAY);

@@ -22,18 +22,32 @@
 #include "esp_err.h"
 
 /**
+ * Told when playback starts and stops.
+ *
+ * The receiver knows; the LED belongs to hk_ui; and neither should have to know
+ * about the other. So the fact travels the way the network's status does --
+ * out to whoever started the receiver, which decides what it means.
+ *
+ * Called from the RTSP task. Do the least possible in it.
+ */
+typedef void (*hk_airplay_state_cb_t)(bool playing, void *context);
+
+/**
  * Bring the receiver up. Call once, after the network has an address.
  *
- * Refuses, rather than starting muted, when this device has no business
- * driving I2S: the receiver's output stage clocks real pins, and on a product
- * board without a calibration profile that is the thing G0 and G2 exist to
- * prevent. See the implementation for exactly which builds are allowed.
+ * Refuses, rather than starting muted, when this device has no business driving
+ * I2S: the receiver's output stage clocks real pins, and on a product board
+ * without a calibration profile that is the thing G0 and G2 exist to prevent.
+ * See the implementation for exactly which builds are allowed.
  *
- * Returns ESP_ERR_INVALID_STATE if it has already started, ESP_ERR_NOT_ALLOWED
- * if this build may not drive audio, and otherwise whatever the receiver's own
- * initialisation returned.
+ * @param on_state  Optional. Called when playback starts, pauses or ends.
+ * @param context   Passed back to the callback.
+ *
+ * @return ESP_ERR_INVALID_STATE if it has already started, ESP_ERR_NOT_ALLOWED
+ *         if this build may not drive audio, otherwise whatever the receiver's
+ *         own initialisation returned.
  */
-esp_err_t hk_airplay_start(void);
+esp_err_t hk_airplay_start(hk_airplay_state_cb_t on_state, void *context);
 
 /** Whether the receiver is running. */
 bool hk_airplay_is_running(void);

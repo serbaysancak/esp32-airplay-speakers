@@ -1,0 +1,8 @@
+# The addressable status LED on the bring-up devkit. Declared here because
+# hk_ui owns every status surface; nothing else may drive an LED.
+#
+# It is linked only into the devkit build: the product board's indicator is the
+# three PWM channels of ADR-0011, and with CONFIG_HK_DEVKIT_STATUS_LED unset
+# nothing in this component calls into the driver, so the linker drops it.
+dependencies:
+  espressif/led_strip: "^3.0.3"

@@ -23,21 +23,24 @@
  *   button on a configured device -> BLE
  *
  * The reasoning is that the app-less path must always be reachable. Someone
- * setting a speaker up for the first time may have no app at all, so first
- * boot gets SoftAP.
+ * setting a speaker up for the first time may have no app at all, so first boot
+ * gets SoftAP. Someone pressing the button on a working speaker already has a
+ * network, and a SoftAP would push their phone off it, so that path gets BLE. A
+ * user who needs the app-less route on a configured device holds the button for
+ * 5 s to clear the credentials, which lands them back in the first case.
  *
- * MEASURED ON HARDWARE 2026-09-05, and it does not yet deliver on that: joining
- * the SoftAP opens nothing. wifi_prov_scheme_softap serves protocomm endpoints
- * at 192.168.4.1, not a web page, so a phone that joins sits on a network with
- * no captive portal to redirect it. The app-less promise above is the design;
- * what exists is the Espressif provisioning app, or ESP-IDF's own esp_prov.py.
- * Until a portal is served, "app-less" is not true and this comment should not
- * be read as if it were. HK_PORTAL_TITLE in hk_identity.h names a page nothing
- * serves yet. Someone pressing the button on a working speaker already
- * has a network, and a SoftAP would push their phone off it, so that path gets
- * BLE. A user who needs the app-less route on a configured device holds the
- * button for 5 s to clear the credentials, which lands them back in the first
- * case.
+ * MEASURED ON HARDWARE 2026-09-05: the app-less half of that is not true yet.
+ * Joining the SoftAP opens nothing. wifi_prov_scheme_softap serves protocomm
+ * endpoints at 192.168.4.1, not a web page, so a phone that joins sits on a
+ * network with no captive portal to redirect it, and HK_PORTAL_TITLE in
+ * hk_identity.h names a page nothing serves. What exists today is the Espressif
+ * provisioning app or ESP-IDF's esp_prov.py. The paragraph above is the design;
+ * until a portal is served it should not be read as a description.
+ *
+ * The bring-up devkit has no button, so under the rule above its BLE transport
+ * can never be reached, and a transport nothing can reach is one nothing can
+ * test. CONFIG_HK_DEVKIT_FIRST_BOOT_BLE opens BLE there instead. It changes
+ * nothing on the product board.
  *
  * Security
  * --------

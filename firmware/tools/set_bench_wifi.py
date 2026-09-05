@@ -55,6 +55,26 @@ def refuse_if_tracked() -> None:
             f"would be committed. Run `git rm --cached {LOCAL}` first.")
 
 
+#: Generated configs that would otherwise shadow a change to LOCAL.
+#:
+#: ESP-IDF applies SDKCONFIG_DEFAULTS only when it first generates an sdkconfig.
+#: After that the generated file wins, so editing the fragment and rebuilding
+#: changes nothing -- including a --clear, which would report success while the
+#: next image still carried the old credentials. Removing the generated file is
+#: what makes the change take effect, and it is not a nicety: the failure mode
+#: is a board that quietly keeps a password someone believes they deleted.
+GENERATED_CONFIGS = (FIRMWARE / "build-devkit" / "sdkconfig",)
+
+
+def drop_generated_configs() -> list[Path]:
+    dropped = []
+    for path in GENERATED_CONFIGS:
+        if path.exists():
+            path.unlink()
+            dropped.append(path)
+    return dropped
+
+
 def write(ssid: str, password: str) -> None:
     LOCAL.write_text(
         "# Bench Wi-Fi for the N8R2 devkit. NEVER COMMIT THIS FILE.\n"
@@ -76,8 +96,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.clear:
         write("", "")
+        dropped = drop_generated_configs()
         print(f"cleared {LOCAL}")
-        print("Rebuild and reflash for the board to stop carrying them.")
+        for path in dropped:
+            print(f"removed {path}, so the next build re-reads the defaults")
+        print("Rebuild AND reflash: until the board is written again it still "
+              "carries the old credentials.")
         return 0
 
     ssid = input("Wi-Fi SSID: ").strip()
@@ -95,9 +119,12 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     write(ssid, password)
+    dropped = drop_generated_configs()
     # The SSID is echoed and the password is not, deliberately: seeing which
     # network was recorded is how a typo is caught before a flash.
     print(f"\nwrote {LOCAL} (mode 600) for SSID {ssid!r}")
+    for path in dropped:
+        print(f"removed {path}, so the next build re-reads it")
     print("It is ignored by git. Build the devkit target and flash; the board joins on boot.")
     print("Run with --clear when you are done with this network.")
     return 0

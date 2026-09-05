@@ -127,6 +127,8 @@ Tek gövdeli, ortak katot RGB LED ve her renk için ayrı seri direnç kullanıl
 
 > **2026-09-05 — hangi satırlar gerçekten sürülüyor.** Tablo baştan beri eksiksizdi ve `hk_led` her satırı uygulamıştı, ama iki durumu hiçbir yer set etmiyordu: `playing` ve `battery_low`. Oynatma durumu bu tarihte bağlandı — AirPlay yığınının kendi RTSP olayları `hk_main` üzerinden `hk_ui`'ya taşınıyor, LED'in tek sahibi `hk_ui` kalmaya devam ediyor. Sahibi "mor nefes" istediği için desen `SOLID`'den `BREATHE`'e alındı ve satır buna göre güncellendi.
 >
+> Aynı turda nefes efektinin kendisi de düzeltildi ve bu tablodaki üç "nefes" satırının hepsini etkiliyor: zarf üçgendi, kosinüs oldu (üçgen iki uçta da anında döndüğü için göz onu nefes değil sıçrama olarak görüyor), ve artık sıfıra inmiyor — sıfıra inen bir nefes yavaş yanıp sönmedir, renk kaybolur ve göz ritmi değil kaybolmayı fark eder.
+>
 > `battery_low` hâlâ ölü ve yazılımla açılamaz: ADC sürücüsü yok ve eşikler `G3`/`G4` ölçümlerine bağlı. Uydurma bir eşikle yakmak, batarya göstergesini güvenilmez yapardı.
 
 LED animasyonları audio task üzerinde çalışmayacak; düşük öncelikli ayrı görev/timer kullanılacak. PWM veya GPIO güncellemelerinin I2S zamanlamasına ve analog dip gürültüsüne etkisi ölçülecek.

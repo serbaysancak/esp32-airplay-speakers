@@ -1,5 +1,6 @@
 #include "hk_ui.h"
 
+#include <math.h>
 #include <string.h>
 
 #include "driver/gpio.h"
@@ -104,13 +105,19 @@ static uint32_t envelope(const hk_led_pattern_t *pattern, uint32_t time_ms)
     uint32_t phase = time_ms % pattern->period_ms;
 
     if (pattern->animation == HK_LED_ANIM_BREATHE) {
-        /* Triangle: up over the first half, down over the second. */
-        uint32_t half = pattern->period_ms / 2u;
-        if (half == 0u) {
-            return 255u;
-        }
-        uint32_t rising = (phase < half) ? phase : (pattern->period_ms - phase);
-        return (rising * 255u) / half;
+        /* A raised cosine, not a triangle.
+         *
+         * A triangle turns around instantly at both ends, and the eye sees
+         * those corners as a flick rather than a breath -- the light appears to
+         * stall at the top and snap at the bottom. A cosine has zero slope at
+         * both turning points, which is what makes it read as breathing.
+         *
+         * It runs between HK_LED_BREATHE_FLOOR and full rather than from zero,
+         * so the colour never leaves. */
+        const float turn = 2.0f * (float)M_PI * (float)phase / (float)pattern->period_ms;
+        const float rise = (1.0f - cosf(turn)) * 0.5f;    /* 0 .. 1, smooth */
+        const float span = 255.0f - (float)HK_LED_BREATHE_FLOOR;
+        return (uint32_t)((float)HK_LED_BREATHE_FLOOR + span * rise);
     }
     /* Both blink speeds are a square wave; the pattern carries the period. */
     return (phase < (pattern->period_ms / 2u)) ? 255u : 0u;
@@ -123,23 +130,29 @@ static uint32_t envelope(const hk_led_pattern_t *pattern, uint32_t time_ms)
  * square root of emitted light, so a linear duty ramp reads as a bright flash
  * followed by nothing. Squaring makes a breathe look like a breathe.
  */
-static uint32_t duty_for(uint8_t component, uint32_t env, uint8_t brightness)
+/** The component's level before gamma: 0-255, brightness already applied. */
+static uint32_t level_for(uint8_t component, uint32_t env, uint8_t brightness)
 {
-    uint32_t linear = ((uint32_t)component * env) / 255u;      /* 0-255 */
-    linear = (linear * brightness) / 100u;                     /* 0-255 */
-    return (linear * linear * HK_UI_DUTY_MAX) / (255u * 255u); /* gamma */
+    const uint32_t scaled = ((uint32_t)component * env) / 255u;
+    return (scaled * brightness) / 100u;
+}
+
+static uint32_t duty_for(uint32_t level)
+{
+    return (level * level * HK_UI_DUTY_MAX) / (255u * 255u); /* gamma */
 }
 
 static void render(const hk_led_pattern_t *pattern, uint32_t time_ms)
 {
     uint32_t env = envelope(pattern, time_ms);
     const uint8_t component[3] = {pattern->red, pattern->green, pattern->blue};
-    uint32_t duty[3];
+    uint32_t level[3];
 
     for (int i = 0; i < 3; i++) {
-        duty[i] = duty_for(component[i], env, pattern->brightness);
+        level[i] = level_for(component[i], env, pattern->brightness);
+        const uint32_t duty = duty_for(level[i]);
         /* Common cathode: a higher duty is brighter, and zero is off. */
-        ledc_set_duty(LEDC_LOW_SPEED_MODE, LED_CHANNELS[i].channel, duty[i]);
+        ledc_set_duty(LEDC_LOW_SPEED_MODE, LED_CHANNELS[i].channel, duty);
         ledc_update_duty(LEDC_LOW_SPEED_MODE, LED_CHANNELS[i].channel);
     }
 
@@ -156,11 +169,7 @@ static void render(const hk_led_pattern_t *pattern, uint32_t time_ms)
      * board that cannot show its state is still a board that works, and taking
      * the UI task down over it would remove the LED and the button at once. */
     if (s_strip != NULL) {
-        (void)led_strip_set_pixel(s_strip,
-                                  0,
-                                  (duty[0] * 255u) / HK_UI_DUTY_MAX,
-                                  (duty[1] * 255u) / HK_UI_DUTY_MAX,
-                                  (duty[2] * 255u) / HK_UI_DUTY_MAX);
+        (void)led_strip_set_pixel(s_strip, 0, level[0], level[1], level[2]);
         (void)led_strip_refresh(s_strip);
     }
 #endif

@@ -72,6 +72,17 @@ typedef struct {
 #define HK_LED_BRIGHTNESS_NORMAL  60u
 #define HK_LED_BRIGHTNESS_ALERT   100u
 
+/**
+ * Floor of the breathe, as a fraction of 255.
+ *
+ * A breathe that reaches zero is not a breathe, it is a slow blink: the light
+ * disappears, and what the eye notices is the disappearing rather than the
+ * rhythm. Holding a floor keeps the colour present the whole cycle, which is
+ * also what makes it readable as a state at a glance rather than something to
+ * wait for.
+ */
+#define HK_LED_BREATHE_FLOOR      64u
+
 /** Everything that could want the LED, sampled at one instant. */
 typedef struct {
     bool             error;         /**< Wi-Fi, audio or battery fault */

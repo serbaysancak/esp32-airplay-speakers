@@ -53,6 +53,25 @@ Bunu test edebilmek için kullanıcının Wi-Fi parolasına ihtiyaç vardı ve *
 
 Bir şey açıklanmadı: üç açılışın ikisinde ilk birleşme ~14 s'de düşüyor ve ~20 s'de temiz kuruluyor. Yeniden bağlanma her seferinde toparladı. Kopma sebebi kaydedilmedi; kayıtta "aralıklı" diye geçiştirilmeden duruyor.
 
+## Önceki tezgâh oturumunun notlarından gelenler
+
+Kullanıcı, aynı kartla yapılmış 2026-09-03 tarihli bir oturumun devir notunu paylaştı (`20260903n8r2buttonandprovisioning.md`). O oturumun belgeleri de bu depoda yok. İçindeki iki bulgu hâlâ geçerliydi ve burada kapatıldı:
+
+**Buton, kendi altındaki görevi taşırıyordu.** `on_button()` `hk_ui` görevinde çalışıyor ve `hk_network_open_provisioning()`'i senkron çağırıyordu: NimBLE, protocomm ve bir SRP6a el sıkışması, debounce için ölçülmüş bir yığında. O oturum bunu çalarken basış senaryosunda çökme olarak gözlemlemiş ve başka bir ağaçta düzeltmiş; düzeltme buraya hiç gelmedi.
+
+Burada yapısal olarak düzeltildi: **geri çağrı yalnız niyeti kaydediyor, yan etkileri ana görev uyguluyor.** Bu aynı zamanda gözden kaçması kolay bir asimetriyi kaldırdı — pencere bir görevde açılıp başka bir görevde kapanıyordu. "Yarım kurulmuş duruma gelen basış düşürülür" özelliği aynen korundu: olay ve iş aynı kilit altında, yalnız politika olayı kabul ettiyse kaydediliyor.
+
+Ölçüldü: `hk_ui` görevi 3.072 baytının 2.332'sini hiç kullanmıyor. Yani asıl işi ~740 bayt; oraya BLE yığını koymanın neden taştığı artık bir tahmin değil. **Çökme bu oturumda yeniden üretilmedi** — kartta GPIO7'ye basacak bir şey yok. Düzeltme yapısal, kanıt dolaylı.
+
+**Kimlik bilgisi üreticisi veri kaybettirebiliyordu.** `factory_cal.csv`, girdi dosyalarını çıplak adla veriyor ve `nvs_partition_gen.py` bunları CSV'ye göre değil **çalışma dizinine göre** çözüyor. Depo kökünden çağrıldığında girdiler bulunamıyor, araç yine de bir dosya yazıyor, ve o dosya `0x13000`'a yazılınca oradaki kimlik bilgilerini siliyor — yerine hiçbir şey koymadan. O oturumda tam olarak bu oldu.
+
+Belgeye uyarı yazmak yerine ayak kaldırıldı: `--image` bayrağı imajı **doğru çalışma dizininden** kendisi üretiyor, boyutu (`0xd000`) ve ilk NVS sayfasının varlığını doğruluyor. Kendi testim burada ikinci bir kusur buldu — üretici hata verdiğinde yarım dosya diskte kalıyordu, ki tehlikenin kendisi tam olarak o dosyaydı. Artık hiçbir başarısız yol geride dosya bırakmıyor.
+
+**Kapatılmayan, karar bekleyen iki şey:**
+
+- **Telefon uygulamasıyla provisioning çalışmıyor.** Espressif SoftAP Prov uygulaması SRP6a el sıkışması **tamamlandıktan sonra** AES-GCM katmanında düşüyor (`mbedtls_gcm_auth_decrypt : -18`). ESP-IDF'in kendi referans istemcisi aynı cihaza aynı kimlik bilgileriyle bağlanıyor, yani firmware doğru, uyumsuzluk istemcide. Son kullanıcının kurulum yolu mobil uygulama olduğu için bu bir **ürün riski**dir, geliştirme sıkıntısı değil.
+- **SRP6a kullanıcı adı.** Tezgâh kartındaki kimlik bilgileri `wifiprov` ile üretilmiş; `provision_credentials.py` hâlâ `harmankardom` üretiyor. Ekosistemin varsayılanı `wifiprov`. Protokolce özel bir ad geçerli, ama uyumluluk riski. Kaynağı bilerek değiştirmedim: bu bir karar konusu, sessizce yapılacak bir düzeltme değil.
+
 ## Ne yapılmadı
 
 - **AirPlay bu depoda hâlâ vendor edilmedi.** Kartta çalışan eski yapı onu içeriyordu; bu, entegrasyonun mümkün olduğunun kanıtı ama depoda var olduğunun kanıtı değil. Sıradaki iş bu.

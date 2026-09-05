@@ -22,6 +22,8 @@ static const char *TAG = "hk_ui";
 /* Deliberately low. Audio and networking must both pre-empt the LED. */
 #define HK_UI_TASK_PRIO  2
 
+static TaskHandle_t s_task;
+
 typedef struct {
     ledc_channel_t channel;
     int            gpio;
@@ -133,6 +135,15 @@ static void ui_task(void *arg)
     }
 }
 
+size_t hk_ui_stack_headroom(void)
+{
+    if (s_task == NULL) {
+        return 0u;
+    }
+    /* uxTaskGetStackHighWaterMark counts stack words, not bytes. */
+    return (size_t)uxTaskGetStackHighWaterMark(s_task) * sizeof(StackType_t);
+}
+
 esp_err_t hk_ui_start(hk_ui_event_cb_t callback, void *context)
 {
     s_callback = callback;
@@ -193,7 +204,7 @@ esp_err_t hk_ui_start(hk_ui_event_cb_t callback, void *context)
     s_status.booting = true;
 
     BaseType_t created = xTaskCreate(ui_task, "hk_ui", HK_UI_TASK_STACK, NULL,
-                                     HK_UI_TASK_PRIO, NULL);
+                                     HK_UI_TASK_PRIO, &s_task);
     if (created != pdPASS) {
         ESP_LOGE(TAG, "could not create the ui task");
         return ESP_ERR_NO_MEM;

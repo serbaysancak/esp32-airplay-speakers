@@ -38,6 +38,7 @@ import json
 import os
 import secrets
 import string
+import subprocess
 import sys
 from pathlib import Path
 
@@ -120,6 +121,69 @@ def qr_payload(device_id: str, password: str, transport: str) -> str:
     }, separators=(",", ":"))
 
 
+#: factory_cal size, from firmware/partitions.csv. Both boards use the same one.
+IMAGE_SIZE = 0xD000
+PARTITION_HINT = "firmware/partitions.csv"
+
+
+class ImageError(Exception):
+    """The partition image was not produced, or was produced wrong."""
+
+
+def build_image(device_dir: Path) -> Path:
+    """Generate the factory_cal image for one device, and prove it is usable.
+
+    Run from inside the device directory on purpose. The CSV names prov_salt.bin
+    and prov_verif.bin without a path, and nvs_partition_gen.py resolves those
+    against the working directory rather than against the CSV -- so invoking it
+    from the repository root silently fails to find the inputs. That is not a
+    harmless mistake: the tool still writes an output file, and a short file
+    flashed at the factory_cal offset erases the credentials that were there and
+    puts nothing in their place, leaving a device that can never be provisioned.
+
+    So the image is checked before anyone can flash it: exact size, and an NVS
+    page header where an erased region would read 0xFF.
+    """
+    idf_path = os.environ.get("IDF_PATH")
+    if not idf_path:
+        raise ImageError("IDF_PATH is not set; source $IDF_PATH/export.sh first")
+    generator = (Path(idf_path) / "components" / "nvs_flash"
+                 / "nvs_partition_generator" / "nvs_partition_gen.py")
+    if not generator.is_file():
+        raise ImageError(f"{generator} does not exist")
+
+    image = device_dir / "factory_cal.bin"
+
+    def reject(reason: str) -> ImageError:
+        """Remove the image before complaining about it.
+
+        A failed run still leaves a partial file behind, and a partial file at
+        this path is the whole danger: it looks like the thing to flash. Nothing
+        that is not known-good survives this function.
+        """
+        image.unlink(missing_ok=True)
+        return ImageError(reason)
+
+    result = subprocess.run(
+        [sys.executable, str(generator), "generate",
+         "factory_cal.csv", "factory_cal.bin", hex(IMAGE_SIZE)],
+        cwd=device_dir, capture_output=True, text=True)
+    if result.returncode != 0:
+        detail = (result.stderr.strip().splitlines() or ["no output"])[-1]
+        raise reject(f"nvs_partition_gen.py failed: {detail}")
+    if not image.is_file():
+        raise reject("nvs_partition_gen.py reported success but wrote no image")
+
+    size = image.stat().st_size
+    if size != IMAGE_SIZE:
+        raise reject(f"image is {size} bytes, not {IMAGE_SIZE}; a short image flashed "
+                     f"at that offset erases the credentials and replaces nothing")
+    if image.read_bytes()[:4] == b"\xff\xff\xff\xff":
+        raise reject("image begins with erased flash, so it carries no NVS page: the "
+                     "inputs named in factory_cal.csv were not found")
+    return image
+
+
 def write_device(out_dir: Path, device_id: str, srp6a) -> str:
     device_dir = out_dir / device_id
     device_dir.mkdir(parents=True, exist_ok=True)
@@ -177,6 +241,9 @@ def main() -> int:
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--device", action="append",
                        help="device id, the XXXX suffix from the label; repeatable")
+    parser.add_argument("--image", action="store_true",
+                        help="also build and verify each factory_cal.bin "
+                             "(needs IDF_PATH)")
     group.add_argument("--count", type=int,
                        help="generate this many devices with placeholder ids")
     args = parser.parse_args()
@@ -189,10 +256,32 @@ def main() -> int:
 
     print(f"\n{len(device_ids)} device(s) written under {args.out}")
     print("The label files hold the only copy of each password. Do not commit them.")
-    print("\nBuild a partition image with, per device:")
-    print("  python3 $IDF_PATH/components/nvs_flash/nvs_partition_generator/nvs_partition_gen.py \\")
-    print("      generate <out>/<id>/factory_cal.csv <out>/<id>/factory_cal.bin 0xd000")
-    print("Then flash it at the factory_cal offset from firmware/partitions.csv.")
+
+    if args.image:
+        failures = 0
+        for device_id in device_ids:
+            try:
+                image = build_image(args.out / device_id)
+            except ImageError as error:
+                print(f"ERROR: {device_id}: {error}", file=sys.stderr)
+                failures += 1
+                continue
+            print(f"  {device_id}: {image} ({image.stat().st_size} bytes)")
+        if failures:
+            return 1
+        print(f"\nFlash each at the factory_cal offset in {PARTITION_HINT}.")
+        return 0
+
+    print("\nBuild a partition image with --image, or by hand, per device:")
+    print("  cd <out>/<id> && python3 \\")
+    print("    $IDF_PATH/components/nvs_flash/nvs_partition_generator/nvs_partition_gen.py \\")
+    print(f"    generate factory_cal.csv factory_cal.bin 0x{IMAGE_SIZE:x}")
+    print("The `cd` is not optional: the CSV names its input files without a path and")
+    print("nvs_partition_gen.py resolves them against the working directory, not against")
+    print("the CSV. Run it from anywhere else and the inputs are not found -- and a")
+    print(f"truncated image flashed at that offset erases the credentials that were there.")
+    print(f"Check the result is exactly {IMAGE_SIZE} bytes before flashing it.")
+    print(f"Then flash it at the factory_cal offset from {PARTITION_HINT}.")
     return 0
 
 

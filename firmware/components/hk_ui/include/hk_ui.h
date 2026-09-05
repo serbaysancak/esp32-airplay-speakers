@@ -109,4 +109,19 @@ void hk_ui_clear_booting(void);
  */
 bool hk_ui_recovery_requested(void);
 
+/**
+ * Bytes still unused on the UI task's stack, at its worst point so far.
+ *
+ * The UI task is deliberately small: it reads one pin and drives three PWM
+ * channels. Anything heavier belongs on the main task, and that is a rule
+ * rather than a preference because the button callback used to open
+ * provisioning inline -- NimBLE, protocomm and an SRP6a handshake on a stack
+ * sized for debouncing -- and took the device down with it.
+ *
+ * Reported rather than assumed, so the margin is a number in the boot log and a
+ * future addition that eats it becomes visible before it is fatal. Returns 0
+ * before the task exists.
+ */
+size_t hk_ui_stack_headroom(void);
+
 #endif /* HK_UI_H */

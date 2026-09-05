@@ -87,6 +87,23 @@ Bölüm tablosu bootloader tarafından okunduğu gibi `partitions-devkit.csv` il
 | Wi-Fi birleşmesi ve DHCP | **PASS** — `KhudrahGame_2.4Ghz`, WPA3-SAE, RSSI −44 dBm, `192.168.68.74` |
 | mDNS başlıyor | **PASS** — `harman-kardom-06c4.local` |
 
+## Ölçülen bellek bütçesi
+
+Açılış raporuna iki nokta eklendi, çünkü AirPlay alıcısının sığıp sığmadığı parçanın boyutuna değil, radyolar yerleştikten **sonra** kalana bağlı:
+
+| An | Dahili boş | En büyük blok | PSRAM boş |
+|---|---:|---:|---:|
+| Açılış (Wi-Fi sürücüsü henüz yok) | 292.787 B | 196.608 B | 2.094.964 B |
+| Ağa katıldıktan sonra | 237.787 B | 163.840 B | **2.094.848 B** |
+
+ADR-0007 yığınının jitter tamponu kaynaktan hesaplanabiliyor: `MAX_RING_BUFFER_FRAMES` 1000 × `BYTES_PER_FRAME` 1416 = **1.416.000 bayt**. Ölçülen boş PSRAM'in %67,6'sı; geriye 678.848 bayt kalıyor.
+
+Bu, "sığıyor" demek değil — yalnız "aritmetik önü kapatmıyor" demek. Alıcının PSRAM'de başka ne ayırdığı (mDNS, RTSP tamponları, çözücüler, resampler) ölçülmedi; ancak yığın gerçekten çalıştığında ölçülebilir.
+
+## `hk_ui` görev yığını
+
+Ölçülen: **3.072 baytın 2.332 baytı hiç kullanılmıyor**, yani görev kendi işi için ~740 bayt harcıyor. Görev doğru boyutlanmış; sorun boyut değil, oraya konan işti.
+
 ## Ne gözlendi ama açıklanmadı
 
 **İlk birleşme bazen düşüyor.** Üç açılışın ikisinde sıra şöyleydi: `assoc -> run` ~4,3 s'de, sonra ~14,3 s'de `run -> init`, `hk_net: disconnected, retry 1 of 5`, ardından ~20 s'de temiz birleşme ve ~21 s'de IP. Üçüncü açılışta düşme olmadı ve IP 5,4 s'de geldi. Yeniden bağlanma mantığı her seferinde toparladı, yani kullanıcıya görünen bir arıza yok — ama **10 saniyelik bu düşüş açıklanmadı.** Kopma sebebi kodu kaydedilmedi. Kartın anten yerleşimi, WPA3-SAE anlaşması ve AP'nin band steering'i aday açıklamalar; hiçbiri ölçülmedi.

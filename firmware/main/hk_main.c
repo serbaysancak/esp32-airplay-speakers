@@ -30,6 +30,7 @@
 #include "esp_chip_info.h"
 #include "esp_err.h"
 #include "esp_flash.h"
+#include "esp_heap_caps.h"
 #include "esp_psram.h"
 #include "esp_random.h"
 #include "esp_log.h"
@@ -417,6 +418,19 @@ static void report_hardware(void)
     } else {
         ESP_LOGI(TAG, "psram       %u MB", psram_mb);
     }
+
+    /* The memory budget, printed rather than assumed.
+     *
+     * The AirPlay receiver of ADR-0007 sizes its jitter buffer from a compile
+     * time constant, so whether it fits is decided by what is left AFTER the
+     * radios and TLS are resident -- not by the size of the part. Printing both
+     * pools at the same point in every boot is what makes that a number instead
+     * of an argument, and what makes a regression visible when some later
+     * component starts allocating at init. */
+    ESP_LOGI(TAG, "free        %u B internal (largest block %u B), %u B psram",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
 }
 
 /** Provisioning policy for this boot. Nothing drives the radios yet. */
@@ -435,6 +449,34 @@ static hk_prov_t    s_provisioning;
 static portMUX_TYPE s_prov_lock = portMUX_INITIALIZER_UNLOCKED;
 static bool         s_prov_ready;
 
+/*
+ * Work the button asks for, carried out on the main task instead of in the UI
+ * task that observed the press.
+ *
+ * The UI task exists to read one GPIO and drive three PWM channels, and it is
+ * sized for that. Opening provisioning is the opposite kind of work: it brings
+ * up NimBLE, protocomm and an SRP6a handshake, none of which fit in a stack
+ * measured for debouncing. Calling it from the button callback put that whole
+ * stack on the UI task and overflowed it -- a press while the speaker was
+ * playing took the device down. The other two actions are lighter but the same
+ * shape: NVS writes reached from a task that should only be reading a pin.
+ *
+ * So the callback records intent and returns. Every side effect happens on the
+ * main task, which already owns the provisioning window and closes it. That
+ * also removes an asymmetry that was easy to miss: the window was opened from
+ * one task and closed from another.
+ *
+ * Guarded by s_prov_lock, and set only when the policy accepted the event, so a
+ * press arriving before start_network() finishes is dropped in one piece rather
+ * than half-applied.
+ */
+#define HK_ACTION_OPEN_PROVISIONING   (1u << 0)
+#define HK_ACTION_FORGET_CREDENTIALS  (1u << 1)
+#define HK_ACTION_RESET_USER_SETTINGS (1u << 2)
+
+static uint32_t     s_pending_actions;
+static TaskHandle_t s_main_task;
+
 /** Apply one provisioning event under the lock. */
 static void prov_event(hk_prov_event_t event)
 {
@@ -444,6 +486,42 @@ static void prov_event(hk_prov_event_t event)
         hk_prov_handle(&s_provisioning, event, at);
     }
     portEXIT_CRITICAL(&s_prov_lock);
+}
+
+/**
+ * Apply a button event and queue the work it implies, atomically.
+ *
+ * Both halves happen under one lock so the policy state and the pending work
+ * can never disagree about whether a press was accepted.
+ */
+static void button_request(hk_prov_event_t event, uint32_t actions)
+{
+    const uint32_t at = now_ms();
+    bool accepted = false;
+    portENTER_CRITICAL(&s_prov_lock);
+    if (s_prov_ready) {
+        hk_prov_handle(&s_provisioning, event, at);
+        s_pending_actions |= actions;
+        accepted = true;
+    }
+    portEXIT_CRITICAL(&s_prov_lock);
+
+    /* Outside the critical section: notifying can reschedule. The loop also
+     * wakes on its own once a second, so a lost notification costs latency,
+     * not the action. */
+    if (accepted && s_main_task != NULL) {
+        xTaskNotifyGive(s_main_task);
+    }
+}
+
+/** Take the queued work, leaving the queue empty. */
+static uint32_t take_pending_actions(void)
+{
+    portENTER_CRITICAL(&s_prov_lock);
+    const uint32_t actions = s_pending_actions;
+    s_pending_actions = 0u;
+    portEXIT_CRITICAL(&s_prov_lock);
+    return actions;
 }
 
 /** A consistent copy, so callers never read a half-updated struct. */
@@ -473,32 +551,18 @@ static void on_button(hk_button_event_t event, void *context)
     (void)context;
     switch (event) {
     case HK_BUTTON_EVENT_SHORT_PRESS:
-        prov_event(HK_PROV_EV_BUTTON_SHORT);
+        button_request(HK_PROV_EV_BUTTON_SHORT, HK_ACTION_OPEN_PROVISIONING);
         ESP_LOGI(TAG, "button: opening provisioning -> %s",
                  hk_prov_state_name(prov_snapshot().state));
-        if (hk_network_open_provisioning() != ESP_OK) {
-            ESP_LOGE(TAG, "could not open provisioning");
-        }
         break;
     case HK_BUTTON_EVENT_NETWORK_RESET:
         ESP_LOGW(TAG, "button: forgetting Wi-Fi credentials");
-        prov_event(HK_PROV_EV_NETWORK_RESET);
-        if (hk_network_forget_credentials() != ESP_OK) {
-            ESP_LOGE(TAG, "could not clear credentials");
-        }
+        button_request(HK_PROV_EV_NETWORK_RESET, HK_ACTION_FORGET_CREDENTIALS);
         break;
     case HK_BUTTON_EVENT_FACTORY_RESET:
         ESP_LOGW(TAG, "button: restoring user settings to defaults");
-        prov_event(HK_PROV_EV_FACTORY_RESET);
-        /* User settings first, then credentials. Calibration is in another
-         * partition that this firmware opens read-only, so neither call can
-         * reach it (PRD-008). */
-        if (hk_storage_user_reset() != ESP_OK) {
-            ESP_LOGE(TAG, "could not restore user settings");
-        }
-        if (hk_network_forget_credentials() != ESP_OK) {
-            ESP_LOGE(TAG, "could not clear credentials");
-        }
+        button_request(HK_PROV_EV_FACTORY_RESET,
+                       HK_ACTION_RESET_USER_SETTINGS | HK_ACTION_FORGET_CREDENTIALS);
         break;
     case HK_BUTTON_EVENT_NONE:
     default:
@@ -522,6 +586,24 @@ static void on_network_status(const hk_net_status_t *network, void *context)
         hk_health_report(HK_HEALTH_CRITERION_NETWORK, HK_HEALTH_FAIL);
     } else if (network->connected || network->provisioning) {
         hk_health_report(HK_HEALTH_CRITERION_NETWORK, HK_HEALTH_PASS);
+    }
+
+    /* The memory budget again, at the moment the AirPlay receiver would start.
+     *
+     * The boot-time figures in report_hardware() are taken before the Wi-Fi
+     * driver allocates anything, so they overstate what a receiver would find.
+     * This is the number that decides whether the ADR-0007 jitter buffer fits,
+     * so it is logged where that decision is actually made -- once per join,
+     * not per status change, or a flapping link would fill the log. */
+    static bool reported;
+    if (network->connected && !reported) {
+        reported = true;
+        ESP_LOGI(TAG, "free (joined) %u B internal (largest block %u B), %u B psram, "
+                      "ui task %u B stack unused",
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+                 (unsigned)hk_ui_stack_headroom());
     }
 }
 
@@ -598,7 +680,10 @@ void app_main(void)
     }
 
     /* The UI is the one subsystem whose hardware layer exists, so it really
-     * runs: the button is read and the LED is driven. */
+     * runs: the button is read and the LED is driven. The handle is published
+     * before the task starts, so the first possible press already has somewhere
+     * to send its work. */
+    s_main_task = xTaskGetCurrentTaskHandle();
     ESP_ERROR_CHECK(hk_ui_start(on_button, NULL));
     start_network();
     hk_ui_clear_booting();
@@ -612,7 +697,32 @@ void app_main(void)
      * costs nothing measurable next to the radios. */
     bool radios_were_open = false;
     while (true) {
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        /* One second is the policy's clock. The notification only makes a
+         * button press act now instead of up to a second later; nothing depends
+         * on it arriving. */
+        (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000));
+
+        /* The button's work, on a stack that can hold it.
+         *
+         * Order is not cosmetic: a factory reset asks for both, and user
+         * settings must be restored before the credentials are cleared, so a
+         * power cut between them leaves a device that has forgotten its network
+         * rather than one that kept stale settings it can no longer be told to
+         * change. Calibration is in another partition this firmware opens
+         * read-only, so neither call can reach it (PRD-008). */
+        const uint32_t actions = take_pending_actions();
+        if ((actions & HK_ACTION_RESET_USER_SETTINGS) != 0u
+            && hk_storage_user_reset() != ESP_OK) {
+            ESP_LOGE(TAG, "could not restore user settings");
+        }
+        if ((actions & HK_ACTION_FORGET_CREDENTIALS) != 0u
+            && hk_network_forget_credentials() != ESP_OK) {
+            ESP_LOGE(TAG, "could not clear credentials");
+        }
+        if ((actions & HK_ACTION_OPEN_PROVISIONING) != 0u
+            && hk_network_open_provisioning() != ESP_OK) {
+            ESP_LOGE(TAG, "could not open provisioning");
+        }
 
         /* Confirm or roll back this image, once, when the evidence is in. */
         hk_health_monitor_tick(now_ms());

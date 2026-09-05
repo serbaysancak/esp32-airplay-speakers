@@ -84,7 +84,7 @@ Bölüm tablosu bootloader tarafından okunduğu gibi `partitions-devkit.csv` il
 | PSRAM boyutu ile derlenen kart profili uyuşuyor | **PASS** — uyuşmazlıkta hata basacak yol eklendi |
 | `hk_storage` kalibrasyon yokluğunda `fail_safe`'e düşüyor | **PASS** |
 | Ses yolu susturulmuş kalıyor | **PASS** — `audio NOT permitted`, `i2s=0 dac=0 amp=0` |
-| Wi-Fi birleşmesi ve DHCP | **PASS** — `KhudrahGame_2.4Ghz`, WPA3-SAE, RSSI −44 dBm, `192.168.68.74` |
+| Wi-Fi birleşmesi ve DHCP | **PASS** — WPA3-SAE, RSSI −44 dBm, `192.168.68.74` |
 | mDNS başlıyor | **PASS** — `harman-kardom-06c4.local` |
 
 ## Ölçülen bellek bütçesi
@@ -138,7 +138,9 @@ Cihazın kendi logu "hazır" diyor; buna güvenmeyip Mac'ten `dns-sd` ile aratt�
 - aynı Mac aynı subnet'te **sekiz başka komşuyu** ARP'la çözüyor, yani genel bir istemci yalıtımı yok;
 - gateway'e ping çalışıyor, kart DHCP almış.
 
-Sebep ağ yapılandırması: kart `KhudrahGame_2.4Ghz`'ye bağlı ve bu, TP-Link Deco'nun **misafir ağı** — tasarımı gereği ana ağdan yalıtık. Mac ana ağda.
+Sebep ağ yapılandırması: kart, yönlendiricinin (TP-Link Deco) ayrı 2,4 GHz **misafir SSID'sine** bağlıydı ve o ağ tasarımı gereği ana ağdan yalıtık. Mac ana ağdaydı.
+
+> SSID'ler bu kayıtta bilerek yazılmıyor. Bu depo public ve bir SSID konum bilgisidir: kamuya açık veritabanları SSID'leri koordinatlara eşler. Hangi ağ olduğu bulgunun teknik içeriğine hiçbir şey katmıyor — önemli olan ağın **yalıtılmış** olması.
 
 Bu bir test kolaylığı sorunu değil, **ürün için belirleyici**: AirPlay keşfi mDNS çoklu yayınıyla, oturum RTSP ile, senkron PTP çoklu yayınıyla çalışır. Hiçbiri yalıtılmış bir misafir ağını aşmaz. Hoparlör ve telefon aynı L2 ağında olmak zorundadır.
 

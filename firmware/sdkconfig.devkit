@@ -41,3 +41,10 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions-devkit.csv"
 #     board in either direction. hk_manifest refuses a manifest whose
 #     hw_revision is not the running device's, and this is what makes them differ.
 CONFIG_HK_BOARD_DEVKIT_N8R2=y
+
+# --- The AirPlay receiver of ADR-0007, on for the bench board.
+#     It drives I2S, and this board has no DAC and no amplifier on those pins,
+#     so there is nothing it can energise. On the product board the same code
+#     refuses to start until G0/G2 have produced a protection profile.
+#     Enabling it binds this build to the upstream non-commercial licence.
+CONFIG_HK_AIRPLAY=y

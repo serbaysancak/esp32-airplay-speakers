@@ -32,6 +32,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import subprocess
 import sys
 
@@ -63,6 +64,27 @@ SKIP_PREFIXES = ("build/", "firmware/build/", "firmware/build-release/",
 # now and what has to change before a real release is signed.
 ALLOWED_PREFIX = "docs/credentials/"
 
+#: Third-party files that carry a key this project neither generated nor can
+#: rotate, acknowledged one at a time.
+#:
+#: Each entry pins the file's SHA-256 as well as its path. That is the whole
+#: point: a path-only exception is a hole, because the next upstream update
+#: could put a different key at the same path and this check would wave it
+#: through. Pinning the content means any change re-opens the question, and the
+#: person who updates the vendored tree has to look at what they are approving.
+#:
+#: Nothing of ours belongs here. An entry is only correct when the key is
+#: already public, is required by a protocol, and rotating it is not a thing
+#: this project could do.
+ACKNOWLEDGED_THIRD_PARTY_KEYS = {
+    "firmware/components/hk_airplay/vendor/rtsp/rtsp_rsa.c":
+        ("7584005bdb9bd347e5806b5ff01a0675cff34fbb64b45c31cd757576c262d561",
+         "the AirPlay RSA key, published since 2011 and embedded in every open "
+         "AirPlay receiver. It is what the protocol authenticates with, not a "
+         "secret of this project: it cannot be rotated, and a receiver without "
+         "it is not a receiver. Vendored verbatim under ADR-0013."),
+}
+
 
 def tracked_files(staged: bool) -> list[str]:
     if staged:
@@ -87,9 +109,21 @@ def scan(paths: list[str]) -> list[str]:
         except (FileNotFoundError, IsADirectoryError, PermissionError):
             continue
         for marker, description in MARKERS:
-            if marker in blob:
-                problems.append(f"{path}: contains a {description}")
+            if marker not in blob:
+                continue
+            acknowledged = ACKNOWLEDGED_THIRD_PARTY_KEYS.get(path)
+            if acknowledged is not None:
+                digest = hashlib.sha256(blob).hexdigest()
+                if digest == acknowledged[0]:
+                    break
+                problems.append(
+                    f"{path}: contains a {description}, and the file has changed "
+                    f"since it was acknowledged (sha256 {digest}, expected "
+                    f"{acknowledged[0]}). Re-read it before updating the pin: "
+                    f"the acknowledgement was for {acknowledged[1]}")
                 break
+            problems.append(f"{path}: contains a {description}")
+            break
     return problems
 
 

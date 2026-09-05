@@ -41,6 +41,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "hk_airplay.h"
 #include "hk_audio.h"
 #include "hk_button.h"
 #include "hk_identity.h"
@@ -161,14 +162,28 @@ static void report_policies(void)
              hk_power_audio_permitted(power, false) ? "permitted"
                                                     : "NOT permitted");
 
-    /* The output chain starts and stays muted: the amplifier is held down by
-     * an external pull-down, not by this firmware (ADR-0011). */
+    /* The output chain starts muted: the amplifier is held down by an external
+     * pull-down, not by this firmware (ADR-0011).
+     *
+     * "Starts", not "stays". With the AirPlay receiver built in, the I2S pins
+     * are clocked as soon as it comes up, seconds after this line is printed.
+     * The line is true when printed, and the suffix is what keeps it from
+     * reading as a promise about the rest of the boot. The DAC and amplifier
+     * mute lines are a different matter and do stay asserted: audio is not
+     * permitted without a protection profile, and the receiver does not get to
+     * override that. */
     hk_audio_t chain;
     hk_audio_init(&chain, 0);
     const hk_audio_outputs_t lines = hk_audio_outputs(chain.state);
-    ESP_LOGI(TAG, "output      %s (i2s=%d dac=%d amp=%d)",
+    ESP_LOGI(TAG, "output      %s (i2s=%d dac=%d amp=%d)%s",
              hk_audio_state_name(chain.state),
-             lines.i2s_running, lines.dac_unmuted, lines.amp_enabled);
+             lines.i2s_running, lines.dac_unmuted, lines.amp_enabled,
+#if CONFIG_HK_AIRPLAY
+             ", until the AirPlay receiver clocks I2S"
+#else
+             ""
+#endif
+             );
 
     /* What the first-boot check would decide right now. Nothing reports yet,
      * so it must be waiting rather than confirming. */
@@ -473,6 +488,7 @@ static bool         s_prov_ready;
 #define HK_ACTION_OPEN_PROVISIONING   (1u << 0)
 #define HK_ACTION_FORGET_CREDENTIALS  (1u << 1)
 #define HK_ACTION_RESET_USER_SETTINGS (1u << 2)
+#define HK_ACTION_START_AIRPLAY       (1u << 3)
 
 static uint32_t     s_pending_actions;
 static TaskHandle_t s_main_task;
@@ -510,6 +526,22 @@ static void button_request(hk_prov_event_t event, uint32_t actions)
      * wakes on its own once a second, so a lost notification costs latency,
      * not the action. */
     if (accepted && s_main_task != NULL) {
+        xTaskNotifyGive(s_main_task);
+    }
+}
+
+/**
+ * Queue work without a policy event behind it.
+ *
+ * The network status callback runs in the event task, which is no better a
+ * place to start an AirPlay receiver than the UI task was to start BLE.
+ */
+static void queue_action(uint32_t actions)
+{
+    portENTER_CRITICAL(&s_prov_lock);
+    s_pending_actions |= actions;
+    portEXIT_CRITICAL(&s_prov_lock);
+    if (s_main_task != NULL) {
         xTaskNotifyGive(s_main_task);
     }
 }
@@ -595,9 +627,12 @@ static void on_network_status(const hk_net_status_t *network, void *context)
      * This is the number that decides whether the ADR-0007 jitter buffer fits,
      * so it is logged where that decision is actually made -- once per join,
      * not per status change, or a flapping link would fill the log. */
-    static bool reported;
-    if (network->connected && !reported) {
-        reported = true;
+    static bool first_join;
+    if (network->connected && !first_join) {
+        first_join = true;
+        /* The receiver needs an address, so this is the earliest it can start,
+         * and it starts on the main task rather than here. */
+        queue_action(HK_ACTION_START_AIRPLAY);
         ESP_LOGI(TAG, "free (joined) %u B internal (largest block %u B), %u B psram, "
                       "ui task %u B stack unused",
                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
@@ -723,6 +758,15 @@ void app_main(void)
             && hk_network_open_provisioning() != ESP_OK) {
             ESP_LOGE(TAG, "could not open provisioning");
         }
+#if CONFIG_HK_AIRPLAY
+        if ((actions & HK_ACTION_START_AIRPLAY) != 0u) {
+            /* Failure is logged by hk_airplay and is not fatal: a speaker that
+             * cannot receive AirPlay is still a speaker that can be reached,
+             * updated and reset, and taking the device down would remove the
+             * only way to fix it. */
+            (void)hk_airplay_start();
+        }
+#endif
 
         /* Confirm or roll back this image, once, when the evidence is in. */
         hk_health_monitor_tick(now_ms());

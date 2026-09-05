@@ -81,6 +81,7 @@ DRIFT_RULES = (
         pattern=r"\bN8R2\b",
         allowed=(
             "docs/07-decisions/ADR-0012-n8r2-bringup-target.md",
+            "docs/07-decisions/ADR-0013-airplay-integration-shape.md",
             "docs/07-decisions/README.md",
             "docs/06-testing/devkit-bring-up.md",
             "docs/06-testing/test-log.md",

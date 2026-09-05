@@ -1,0 +1,88 @@
+menu "Harman Kardom AirPlay"
+
+config HK_AIRPLAY
+    bool "Build the vendored AirPlay 2 receiver (ADR-0007)"
+    default n
+    help
+        Compile and link the AirPlay receiver vendored under
+        components/hk_airplay/vendor at the commit ADR-0007 pins.
+
+        Off by default. The receiver drives I2S, and on the product board that
+        is not allowed until the driver-protection gates (G0/G2) have produced
+        a calibration profile -- hk_airplay_start() refuses in that case anyway,
+        but leaving the code out entirely keeps the product image and its size
+        budget unchanged until the decision is actually made.
+
+        The upstream licence is non-commercial. Enabling this binds the whole
+        firmware to those terms; see ADR-0007.
+
+if HK_AIRPLAY
+
+# --- Values the vendored sources read.
+#
+#     Declared here rather than by vendoring upstream's Kconfig, so that
+#     vendor/ stays byte-identical to upstream and the settings this project
+#     actually made are visible in one file instead of buried in a 523-line
+#     menu describing boards, displays and amplifiers that do not exist here.
+
+config I2S_BCK_IO
+    int "I2S bit clock GPIO"
+    default 4
+config I2S_WS_IO
+    int "I2S word select GPIO"
+    default 5
+config I2S_DO_IO
+    int "I2S data output GPIO"
+    default 6
+config I2S_SCK_IO
+    int "I2S master clock GPIO (-1 for none)"
+    default -1
+    help
+        No master clock. The PCM5102A of ADR-0002 recovers its clock with an
+        internal PLL, so an MCLK line would be a pin spent on nothing.
+config I2S_VCC_IO
+    int "GPIO used to power a DAC module (-1 for none)"
+    default -1
+config I2S_GND_IO
+    int "GPIO used as a DAC module ground (-1 for none)"
+    default -1
+    help
+        Upstream supports small DAC breakout boards powered from spare GPIOs.
+        This design powers the DAC from the supply rail, so both are -1.
+
+config OUTPUT_SAMPLE_RATE_HZ
+    int
+    default 44100
+    help
+        AirPlay's own rate. Resampling would cost CPU and quality to arrive at
+        a rate nothing here needs.
+
+config RESAMPLER_TAPS
+    int
+    default 28
+
+config AIRPLAY_TIMING_THRESHOLD_MS
+    int
+    default 25
+config AIRPLAY_RT_TIMING_THRESHOLD_MS
+    int
+    default 50
+
+config AIRPLAY_FORCE_V1
+    bool "Advertise AirPlay 1 only"
+    default n
+    help
+        Off: the receiver offers AirPlay 2, which is what PRD-002 needs for
+        multiroom. ADR-0007 keeps this switch as the documented retreat if the
+        G7 synchronisation measurement fails.
+
+config ENABLE_AIRPLAY_ARTWORK
+    bool "Receive cover art"
+    default n
+    help
+        Off. There is no display, so artwork would be received and dropped --
+        paid for in the memory budget the jitter buffer needs.
+
+endif
+
+endmenu

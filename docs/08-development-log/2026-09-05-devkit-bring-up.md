@@ -72,6 +72,38 @@ Belgeye uyarı yazmak yerine ayak kaldırıldı: `--image` bayrağı imajı **do
 - **Telefon uygulamasıyla provisioning çalışmıyor.** Espressif SoftAP Prov uygulaması SRP6a el sıkışması **tamamlandıktan sonra** AES-GCM katmanında düşüyor (`mbedtls_gcm_auth_decrypt : -18`). ESP-IDF'in kendi referans istemcisi aynı cihaza aynı kimlik bilgileriyle bağlanıyor, yani firmware doğru, uyumsuzluk istemcide. Son kullanıcının kurulum yolu mobil uygulama olduğu için bu bir **ürün riski**dir, geliştirme sıkıntısı değil.
 - **SRP6a kullanıcı adı.** Tezgâh kartındaki kimlik bilgileri `wifiprov` ile üretilmiş; `provision_credentials.py` hâlâ `harmankardom` üretiyor. Ekosistemin varsayılanı `wifiprov`. Protokolce özel bir ad geçerli, ama uyumluluk riski. Kaynağı bilerek değiştirmedim: bu bir karar konusu, sessizce yapılacak bir düzeltme değil.
 
+## AirPlay vendor edildi, ve ayrılabilirliği bir sayıya indi
+
+[[../07-decisions/ADR-0013-airplay-integration-shape|ADR-0013]] kararı verdi, uygulaması burada. ADR-0007 entegrasyonu "kopyalama değil mimari karar" diye ertelemişti ve haklıydı; ama ertelemeyi yazan not, kaynağı okumadan üç şeyi fazla karamsar söylemiş. Kaynağı okuyunca engellerin çoğu dağıldı.
+
+Belirleyici ölçüm şu: derlemeye aldığım dosyalar, **almadığım modüllerden yalnız iki fonksiyon çağırıyor** — `wifi_get_mac_str()` ve `led_audio_feed()`. Yukarı akışın Wi-Fi yöneticisini, web sunucusunu, captive DNS'ini, LED sürücüsünü, kart profilini, ekranını ve TI DAC sürücülerini almamak, iki fonksiyonluk bir adaptör yazmaya indi. 18 MB'lık depodan 776 KB, 81 dosya kaldı. Bağlantı aşamasında tek bir eksik sembol çıkmadı.
+
+Vendor ağacında **tek satır değişiklik yok**. Ayarlar bizim tarafımızda ayrı bir `Kconfig`'de; bunun bedeli upstream'in 523 satırlık menüsünü tekrar yazmamak yerine yalnız kullandığımız sembolleri tanımlamak oldu, kazancı ise bir sonraki upstream güncellemesinin birleştirme değil kopyalama işi olması.
+
+Kartta çalıştı: `mDNS hostname: Harman-Kardom-06C4.local`, `RTSP server listening on port 7000`, `receiver ready`. Cihaz adı bizim kimliğimizden geliyor, yukarı akışın varsayılanından değil.
+
+**Ürün imajı değişmedi** ve bu iddia ölçüldü: `CONFIG_HK_AIRPLAY` varsayılan kapalı, ürün ikilisinde `fp-setup`, `SETPEERS`, `FPLY`, `_airplay._tcp` dizelerinin hepsi sıfır kez geçiyor; geliştirme ikilisinde var.
+
+Bir tutarsızlık da bu sırada çıktı ve kapatıldı: açılış raporu `output SILENT (i2s=0 dac=0 amp=0)` basıyor, alıcı yirmi saniye sonra I2S'i saatlemeye başlıyordu. Satır basıldığı anda doğruydu ama konunun son sözü gibi duruyordu. Artık ne olacağını söylüyor, alıcı da değişikliği kendisi bildiriyor. DAC ve amfi susturma hatları gerçekten susturulu kalıyor — ses izni yok ve alıcı bunu geçersiz kılamıyor.
+
+## Cihazın kendi loguna güvenmemek
+
+Alıcı "hazır" dedi. Mac'ten `dns-sd` ile arattım: **kart yok.** Ping %100 kayıp, ARP `incomplete`. Aynı Mac aynı subnet'te sekiz komşuyu çözüyor, yani genel bir yalıtım yok.
+
+Sebep: kart TP-Link Deco'nun **misafir ağına** bağlıydı ve o ağ tasarımı gereği ana ağdan yalıtık. Firmware'de arıza yok.
+
+Bu, testi zorlaştıran bir ayrıntı değil, ürün için belirleyici bir kısıt: AirPlay keşfi mDNS çoklu yayınıyla, senkron PTP çoklu yayınıyla çalışır ve ikisi de yalıtılmış bir misafir ağını aşmaz. Hoparlör ile telefon aynı L2 ağında olmak zorundadır. Kurulum belgesine girmesi gereken bir cümle.
+
+Cihazın kendi logu bunu asla söyleyemezdi — o, kendi tarafında her şeyi doğru yapmıştı.
+
+## Provisioning ilk kez donanımda açıldı, ve bir vaadin boş olduğu görüldü
+
+`factory_cal` üretilip yazıldıktan sonra SoftAP provisioning açıldı: salt 16 B, verifier 384 B yüklendi, `wifi_prov_mgr` servisi başladı. `hk_storage` de artık `calibration=use` diyor.
+
+Ama kullanıcı ağa bağlandığında **hiçbir şey açılmadı**, ve bu doğru davranış: `wifi_prov_scheme_softap` bir web sayfası sunmuyor, `192.168.4.1` üzerinde protocomm uç noktaları açıyor. Oysa `hk_network.h` yıllardır "SoftAP **ve bir captive portal**" diyordu ve `HK_PORTAL_TITLE` hiçbir şeyin sunmadığı bir sayfayı adlandırıyor. Yani "uygulamasız yol her zaman erişilebilir olmalı" gerekçesi yazılmış ama karşılığı yazılmamış.
+
+Başlık düzeltildi. Vaat tasarım olarak duruyor; ne olduğu ile ne olacağı artık ayrı yazıyor.
+
 ## Ne yapılmadı
 
 - **AirPlay bu depoda hâlâ vendor edilmedi.** Kartta çalışan eski yapı onu içeriyordu; bu, entegrasyonun mümkün olduğunun kanıtı ama depoda var olduğunun kanıtı değil. Sıradaki iş bu.

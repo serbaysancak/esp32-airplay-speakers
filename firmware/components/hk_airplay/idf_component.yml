@@ -1,0 +1,12 @@
+# Managed dependencies of the vendored AirPlay receiver (ADR-0007).
+#
+# Only the ones the vendored sources actually reach. Upstream's manifest also
+# names led_strip, usb_device_uac and the ESP32-P4 Wi-Fi remoting components;
+# all three belong to files this component does not compile, so pulling them in
+# would add code to the image that nothing calls.
+#
+# The version ranges are upstream's, deliberately: a receiver built against a
+# different libsodium or decoder than its author tested is a different receiver.
+dependencies:
+  espressif/libsodium: "^1.0.21"
+  espressif/esp_audio_codec: "^2.5.0"

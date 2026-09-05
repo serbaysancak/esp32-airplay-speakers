@@ -12,7 +12,13 @@
 # what keep the two from being mixed up; read them before changing either config.
 cmake_minimum_required(VERSION 3.16)
 
-set(EXTRA_COMPONENT_DIRS "${CMAKE_CURRENT_LIST_DIR}/components")
+# The second entry holds the two upstream components the vendored AirPlay stack
+# builds on (ADR-0007). They are registered from where they were copied rather
+# than moved next to ours, so `vendor/` stays byte-identical to upstream and the
+# resampler keeps the compile options upstream gives it.
+set(EXTRA_COMPONENT_DIRS
+    "${CMAKE_CURRENT_LIST_DIR}/components"
+    "${CMAKE_CURRENT_LIST_DIR}/components/hk_airplay/vendor/components")
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(harman-kardom)

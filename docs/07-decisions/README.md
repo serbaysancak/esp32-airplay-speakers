@@ -21,3 +21,4 @@ Durumlar: `proposed`, `accepted`, `superseded`, `rejected`.
 - [[ADR-0010-esp32-s3-n16r8-board|ADR-0010 — Kanonik ESP32-S3 kartı N16R8]]
 - [[ADR-0011-audio-side-gpio-reservation|ADR-0011 — Ses tarafı GPIO rezervasyonu ve yasak pin maskesi]]
 - [[ADR-0012-n8r2-bringup-target|ADR-0012 — N8R2 geliştirme kartı bring-up hedefi]]
+- [[ADR-0013-airplay-integration-shape|ADR-0013 — AirPlay yığınının entegrasyon biçimi]]

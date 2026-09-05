@@ -110,6 +110,54 @@ Bu, "sığıyor" demek değil — yalnız "aritmetik önü kapatmıyor" demek. A
 
 Bu satır burada, "aralıklı" diye geçiştirilmesin diye duruyor. Ürün kartında tekrar bakılacak.
 
+## AirPlay alıcısı
+
+Yığın [[../07-decisions/ADR-0013-airplay-integration-shape|ADR-0013]]'e göre vendor edildi ve **depodan derlenen imaj** kartta çalıştı:
+
+```text
+mdns_airplay: mDNS hostname: Harman-Kardom-06C4.local (device name: Harman Kardom 06C4)
+rtsp_server: RTSP server listening on port 7000
+hk_airplay: receiver ready; I2S is clocked from here on, the DAC and amplifier stay muted
+```
+
+Cihaz adı bizim kimliğimizden geliyor, yukarı akışın kendi varsayılanından değil. İmaj 1.642.880 bayt, slotun %45,5'i boş.
+
+| Ölçüm | Sonuç |
+|---|---|
+| Yığın derleniyor, açılıyor, çökmüyor | **PASS** |
+| mDNS servisleri hatasız kaydediliyor | **PASS** (cihaz tarafı) |
+| RTSP 7000 dinliyor | **PASS** (cihaz tarafı) |
+| Bir Apple cihazı bağlandı | **YAPILMADI** |
+| Ağdan bağımsız doğrulama | **BAŞARISIZ — ağ nedeniyle**, aşağıya bakın |
+
+### Ağdan doğrulanamadı, ve nedeni firmware değil
+
+Cihazın kendi logu "hazır" diyor; buna güvenmeyip Mac'ten `dns-sd` ile arattım ve **kart görünmedi**. Ardından:
+
+- karta `ping`: %100 kayıp, `arp` girdisi `incomplete` — yani L2'de cevap yok;
+- aynı Mac aynı subnet'te **sekiz başka komşuyu** ARP'la çözüyor, yani genel bir istemci yalıtımı yok;
+- gateway'e ping çalışıyor, kart DHCP almış.
+
+Sebep ağ yapılandırması: kart `KhudrahGame_2.4Ghz`'ye bağlı ve bu, TP-Link Deco'nun **misafir ağı** — tasarımı gereği ana ağdan yalıtık. Mac ana ağda.
+
+Bu bir test kolaylığı sorunu değil, **ürün için belirleyici**: AirPlay keşfi mDNS çoklu yayınıyla, oturum RTSP ile, senkron PTP çoklu yayınıyla çalışır. Hiçbiri yalıtılmış bir misafir ağını aşmaz. Hoparlör ve telefon aynı L2 ağında olmak zorundadır.
+
+Kart bu yüzden saklanan kimlik bilgileri silinip provisioning'e alındı; ana ağa katılması kullanıcının parolayı kendi girmesiyle olacak.
+
+## Provisioning ilk kez donanımda açıldı
+
+`factory_cal`, `provision_credentials.py --image` ile üretilip `0x13000`'a yazıldıktan sonra:
+
+```text
+hk_net: provisioning credentials loaded: salt 16 B, verifier 384 B
+wifi_prov_mgr: Provisioning started with service name : HarmanKardom-Setup-06C4
+hk_net: provisioning open over softap
+```
+
+Ayrıca `storage user=write_defaults calibration=use`: kalibrasyon bölümü artık geçerli bir şema taşıyor ve ayrı bölüm olarak okunuyor. Kimlik bilgileri depo dışında tutuluyor.
+
+**Bir Wi-Fi ağına katılma bu yolla henüz tamamlanmadı** — parola cihaz sahibine ait ve bu oturumda hiçbir yere girilmedi.
+
 ## Bu kartta kanıtlanamayacak olanlar
 
 - `G7` dört cihaz senkronu: tek kart var.

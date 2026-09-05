@@ -19,12 +19,21 @@
  * ADR-0005 resolves this by offering them in sequence, and which one opens is
  * decided by how provisioning was entered, never by the caller:
  *
- *   no stored credentials -> SoftAP and a captive portal
+ *   no stored credentials -> SoftAP
  *   button on a configured device -> BLE
  *
  * The reasoning is that the app-less path must always be reachable. Someone
  * setting a speaker up for the first time may have no app at all, so first
- * boot gets SoftAP. Someone pressing the button on a working speaker already
+ * boot gets SoftAP.
+ *
+ * MEASURED ON HARDWARE 2026-09-05, and it does not yet deliver on that: joining
+ * the SoftAP opens nothing. wifi_prov_scheme_softap serves protocomm endpoints
+ * at 192.168.4.1, not a web page, so a phone that joins sits on a network with
+ * no captive portal to redirect it. The app-less promise above is the design;
+ * what exists is the Espressif provisioning app, or ESP-IDF's own esp_prov.py.
+ * Until a portal is served, "app-less" is not true and this comment should not
+ * be read as if it were. HK_PORTAL_TITLE in hk_identity.h names a page nothing
+ * serves yet. Someone pressing the button on a working speaker already
  * has a network, and a SoftAP would push their phone off it, so that path gets
  * BLE. A user who needs the app-less route on a configured device holds the
  * button for 5 s to clear the credentials, which lands them back in the first

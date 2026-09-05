@@ -1,13 +1,13 @@
 ---
 status: active
 owner: firmware-engineer
-updated: 2026-08-31
+updated: 2026-09-05
 tags: [controls, provisioning, firmware]
 ---
 
 # Harman Kardom kontroller, LED ve Wi-Fi provisioning planı
 
-Güncelleme: 2026-08-30
+Güncelleme: 2026-09-05
 
 ## Karar özeti
 
@@ -29,6 +29,44 @@ Wi-Fi kurulumu iki yöntemle sunulacak:
 
 ESP32-S3'te Bluetooth Classic/A2DP bulunmaması BLE provisioning'i engellemez. Provisioning tamamlanınca BLE servisi durdurulacak ve ayrılan bellek serbest bırakılacak; normal AirPlay çalışmasında BLE açık tutulmayacak.
 
+## Plan ile bugün arasındaki fark (2026-09-05)
+
+Plan duruyor. Değişen, ilk kez bir geliştirme kartında denenmiş olması — ürün kartında değil. Bazı satırların karşılığı çıktı, bir tanesinin arkasında hiçbir şey olmadığı görüldü. Bu fark hiçbir yerde yazılı değildi ve zor yoldan yeniden keşfedildi; bölüm bunun için var. Ham kayıt [[06-testing/devkit-bring-up|geliştirme kartı bring-up kaydındadır]], burada yalnız planı bağlayan sonuç var.
+
+| Plandaki söz | 2026-09-05'te ne var |
+|---|---|
+| SoftAP açılıyor, adı `HarmanKardom-Setup-XXXX` | **Var.** Donanımda açıldı; kimlik bilgileri `factory_cal`'dan yükleniyor (salt 16 B, verifier 384 B). |
+| SoftAP'a bağlanan telefonda kurulum sayfası açılıyor | **Yok.** O sayfayı sunan hiçbir şey yazılmadı. |
+| BLE yayını, Security 2 / SRP6a, QR ile kurulum | **Var ve uçtan uca çalışıyor.** Bir iPhone'dan ağa katılındı. |
+| LED desenleri | **Kısmen görüldü.** Kartta harici RGB LED yok, ama `hk_ui` aynı render geçişini kartın kendi adreslenebilir LED'ine aynalıyor; `ready` (yeşil) ve `playing` (mor nefes) sahibi tarafından doğrulandı. `ota`, `battery_low` ve buton geri sayımları görülmedi. |
+| Butonla açılan 10 dakikalık pencere, güç anahtarı | **Denenmedi.** Kartta buton ve anahtar yok; buton `GPIO7`-`GND` köprüsüyle ayrıca sınanacak. |
+
+### Uygulamasız yol bir tasarım, henüz bir yol değil
+
+`wifi_prov_scheme_softap` bir web sayfası sunmuyor; `192.168.4.1` üzerinde protocomm uç noktaları açıyor. Bu yüzden SoftAP'a katılmak hiçbir şey açmıyor, captive portal algılaması da açacak bir sayfa bulamıyor. `hk_identity.h`'deki `HK_PORTAL_TITLE` hiçbir şeyin sunmadığı bir sayfayı adlandırıyor.
+
+[[07-decisions/ADR-0005-dual-provisioning|ADR-0005]]'in gerekçesi — "uygulamasız yol her zaman erişilebilir olmalı" — yazılmış, karşılığı yazılmamış. Karar geçerli, eksik olan captive portalın kendisi. O yazılana kadar bu belgedeki "uygulamasız" sözü bir tasarımdır: kayıtlı kimlik bilgisi olmayan bir cihazda son kullanıcıya kalan bir kurulum yolu yoktur. ESP-IDF'in kendi `esp_prov.py`'si bağlanıyor, ama o bir geliştirici aracıdır ve ürün vaadinin karşılığı değildir.
+
+### BLE çalışıyor, ve hangi uygulamayla çalıştığı önemli
+
+Espressif'in iki ayrı provisioning uygulaması var ve **yalnız biri çalışıyor**. Adları benzediği için aynı sanılması kolay; yanlış olanla denemek "cihaz bozuk" sonucunu verir.
+
+- **ESP BLE Provisioning** — 2026-09-05'te bir iPhone'dan uçtan uca doğrulandı: QR tarandı, ağ seçildi, cihaz katıldı. Cihazla birlikte adı yazılacak uygulama budur.
+- **ESP SoftAP Prov** — çalışmıyor. 2026-09-03 tezgâh notu şunu kaydetti: SRP6a el sıkışması **başarıyla bittikten sonra** AES-GCM katmanında düşüyor (`mbedtls_gcm_auth_decrypt : -18`). Aynı cihaza, aynı kimlik bilgileriyle ESP-IDF'in kendi `esp_prov.py`'si bağlanıyor. Yani kusur firmware'de değil, o uygulamada. Bu ayrım kayda geçiyor, çünkü aksi hâlde çalışan bir firmware "düzeltilmeye" oturulur.
+
+QR yükü SRP6a kullanıcı adını da taşıyor. Sonucu şu: QR ile kurulan bir cihazda kullanıcı adının ekosistem varsayılanı olması **gerekmiyor**, çünkü istemci adı QR'dan okuyor. Kullanıcı adı ancak QR'sız, listeden kurulumda bir uyumluluk konusu olur.
+
+### Bugün kapatılan iki kusur: BLE hiç yayında değildi
+
+İkisi de donanım olmadan görünmüyordu. Derleme, testler ve cihazın kendi logu hep doğru diyordu.
+
+1. **BLE hiç yayın yapmıyordu.** `hk_network_start()`, "bu cihaz kurulmuş mu?" sorusunu sorabilmek için provisioning yöneticisini SoftAP şemasıyla kuruyor, sonra gerçek transport'u seçiyor ve **yöneticiyi bir daha kurmuyordu** — yanındaki yorum kurduğunu söylediği hâlde. `wifi_prov_mgr_init()` taşımayı bağlar; sonrasında başlayan şey seçilen değil, bağlanmış olandır. Cihaz `provisioning open over ble` yazarken SoftAP yayınlıyordu. Log dışında her yüzey tutarlıydı, o yüzden kusur yalnız radyoya bakınca görülüyordu. Artık yeniden kuruluyor ve NimBLE gerçekten yayın yapıyor.
+2. **BLE'nin yayınladığı ad SoftAP SSID'siydi.** Yayın `HarmanKardom-Setup-XXXX` derken cihazla gelen QR `HarmanKardom-XXXX` arıyordu; yani QR'lı kurulum hiçbir zaman eşleşemezdi. Aşağıdaki kimlik tablosundaki iki satır zaten ayrıydı, karışan kod tarafıydı.
+
+### Provisioning'de seçilen ağ ürünü belirliyor
+
+Kart geliştirme sırasında yönlendiricinin misafir ağındaydı ve o ağ tasarımı gereği yalıtık olduğu için ana ağdaki bir Mac cihazı hiç göremedi. AirPlay keşfi mDNS çoklu yayınıyla, saat senkronu PTP çoklu yayınıyla çalışır ve ikisi de yalıtılmış bir misafir ağını aşmaz: hoparlör ile telefon aynı L2 ağında olmak zorundadır. Bu, provisioning'i doğrudan ilgilendiriyor, çünkü ağı seçen adım burasıdır. Ölçüm ve ayrıntı [[06-testing/devkit-bring-up|bring-up kaydında]].
+
 ## Otomatik tanıma için gerçekçi platform sınırı
 
 ### Uygulamasız deneyim
@@ -37,6 +75,9 @@ ESP32-S3'te Bluetooth Classic/A2DP bulunmaması BLE provisioning'i engellemez. P
 - Kullanıcı telefonun Wi-Fi listesinden bu ağı seçer veya cihaz altındaki Wi-Fi QR kodunu tarar.
 - iOS/Android captive portal algılaması kurulum sayfasını otomatik açmayı dener.
 - Portal otomatik açılmazsa sabit adres `192.168.4.1` kullanılır.
+
+> [!warning] 2026-09-05 — son iki madde henüz karşılıksız
+> `192.168.4.1`'de sunulan bir sayfa yok, captive portal yazılmadı. Bu liste ne olacağını anlatıyor, bugün ne olduğunu değil. Gerekçe: yukarıdaki "Plan ile bugün arasındaki fark".
 
 Bu yöntem özel uygulama istemez, ancak telefonun BLE yayınını görür görmez ana ekranda Apple/Android sistem kartı açması garanti edilemez.
 
@@ -47,6 +88,9 @@ Bu yöntem özel uygulama istemez, ancak telefonun BLE yayınını görür görm
 - QR kod cihaz adı, transport, güvenlik sürümü ve benzersiz PoP bilgisini taşır.
 - İlk prototip Espressif Provisioning iOS/Android uygulamalarıyla kurulabilir.
 - Nihai özel uygulama yapılırsa iOS'ta AccessorySetupKit, Android'de Companion Device Manager kullanılarak sistem aksesuar seçicisi gösterilebilir.
+
+> [!note] 2026-09-05 — bu yol donanımda çalıştı, ama tek bir uygulamayla
+> Dördüncü madde doğrulandı: **ESP BLE Provisioning**. Espressif'in "ESP SoftAP Prov" uygulaması ayrı bir uygulamadır ve çalışmıyor; hangisinin neden çalışmadığı yukarıdaki "Plan ile bugün arasındaki fark" bölümünde.
 
 iOS AccessorySetupKit ve Android Companion Device Manager bir uygulama tarafından çağrılan API'lerdir. Uygulama olmadan özel ürün görseli ve sistem eşleştirme kartı açma kapsam dışıdır. Apple HomeKit/MFi veya Google Fast Pair kimliği taklit edilmeyecektir.
 
@@ -88,6 +132,7 @@ mDNS + AirPlay       hata LED'i + yeniden dene
 - Başarılı bağlantıdan sonra BLE ve SoftAP tamamen kapatılır.
 - Art arda bağlantı hatasında cihaz kontrollü olarak tekrar provisioning moduna döner.
 - Wi-Fi parolası hiçbir log, web sayfası geri cevabı veya seri telemetride gösterilmez.
+- 2026-09-05: Şemadaki "BLE yayını + SoftAP captive portal" kutusunun SoftAP yarısı gerçek, captive portal yarısı henüz yok. Kutu ayrıca ikisini yan yana gösteriyor; ADR-0005 sırayla sunuyor.
 
 ## Çok-fonksiyonlu buton davranışı
 

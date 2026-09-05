@@ -98,6 +98,42 @@ hk: flash       8 MB detected
 hk: psram       2 MB
 ```
 
+## ESP-IDF traps
+
+Four toolchain behaviours cost time on 2026-09-05, during devkit bring-up. None
+of them is a decision of this project and all four will be hit again, so each
+one is written symptom first — the symptom is what you have when you are stuck.
+The session they came from is in
+[docs/06-testing/devkit-bring-up.md](../docs/06-testing/devkit-bring-up.md).
+
+**"My edit did nothing."** `SDKCONFIG_DEFAULTS` is read only when ESP-IDF
+*generates* an `sdkconfig`. Afterwards the generated file wins, so editing a
+defaults fragment and rebuilding changes nothing — no warning, no diff, the old
+value still in the image. Delete the generated `sdkconfig` and configure again.
+This is the same cause as the note under Build, and the reason the devkit build
+gets its own `-B` and `-D SDKCONFIG`.
+
+**A dozen missing system headers in a component that compiled yesterday.** A
+component's `CMakeLists.txt` is processed twice: an early pass that only
+collects requirements, in which `CONFIG_` symbols do not exist yet, then the
+real build. So `REQUIRES` / `PRIV_REQUIRES` must be listed unconditionally.
+Wrapping `idf_component_register()` in `if(CONFIG_...)` makes that early pass
+record an empty requirement list, and the failure then surfaces far from its
+cause, as `esp_*.h` includes that cannot be found.
+
+**A run that succeeded and produced a broken file.** `nvs_partition_gen.py`
+resolves the file paths named *inside* a CSV against the working directory, not
+against the CSV. Started from anywhere else it fails to find them, still writes
+an output binary, and that short file flashed at the `factory_cal` offset erases
+the credentials and replaces nothing — leaving a device that behaves as if it
+had never been given any, which this firmware correctly refuses to provision.
+Run the tool from the directory the CSV's paths are written against.
+
+**A hard configure error before anything compiles.** A file listed in
+`SDKCONFIG_DEFAULTS` that does not exist stops the configure step outright.
+Check every entry in the list, `sdkconfig.devkit.local` included: it exists only
+after `tools/set_bench_wifi.py` has been run.
+
 ## Verify
 
 Three checks run without any hardware, and all three run in CI.

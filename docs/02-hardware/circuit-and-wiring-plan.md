@@ -2,7 +2,7 @@
 status: proposed
 owner: hardware-engineer
 reviewers: [orchestrator, qa-engineer]
-updated: 2026-08-31
+updated: 2026-09-05
 tags: [hardware, wiring, schematic, power, audio, usb-c]
 ---
 
@@ -158,6 +158,8 @@ Bu GPIO tablosu [[../07-decisions/ADR-0010-esp32-s3-n16r8-board|ADR-0010]] ile k
 
 Tablo [[../07-decisions/ADR-0011-audio-side-gpio-reservation|ADR-0011]] ile genişletildi.
 
+`GPIO6` ürünün dışında ikinci bir işe daha koşuluyor: tezgâhtaki geliştirme kartında S/PDIF çıkışı aynı pinden sürülüyor, bkz. 3.5. Ürün kablolamasında bu pin yalnız `DIN`'e gider.
+
 Sıralamanın kendisi `firmware/components/hk_audio/` içinde yazılı ve host'ta test edilmiş: açarken saat -> DAC -> amfi, kapatırken **önce amfi**. TPA3110 veri sayfası kapanış pop'u için shutdown'ın güçten önce verilmesini söylüyor; DAC'ı önce susturup amfiyi sonra kapatmak, DAC'ın kendi geçişini canlı bir amfiden geçirirdi.
 
 **Susturma hatlarındaki pull-down opsiyonel değildir; susturma mekanizmasının kendisidir.** Bu parçadaki her GPIO reset'ten yüksek empedanslı çıkar ve ROM, bootloader ve uygulama başlangıcı boyunca öyle kalır — yüzlerce milisaniye. O pencerede amfiyi susturan tek şey harici dirençtir. Yazılımın işi susturmayı **bırakmaktır**; firmware hiç çalışmazsa hoparlörler sessiz kalır.
@@ -209,6 +211,39 @@ PCM5102A çipi harici SCK olmadan BCK PLL ile çalışabilir. Ancak modülün al
 - `C_SAFE` tek başına crossover değildir; DSP HPF ve limiter'a karşı son savunma katmanıdır.
 - `C_SAFE` değeri tweeter nominal empedansı ve güvenli alt frekansı ölçülmeden yazılmaz. İlk hesap: `C = 1 / (2π × R_tweeter × f_safe)`; seçilen değer G2 test raporuna girer.
 - Amfi kanal eşlemesi kabin içinde etiketlenir; firmware ve kablo aynı sürüm numarasını taşır.
+
+### 3.5 S/PDIF tezgâh çıkışı — ürün kablolamasında yoktur
+
+> [!warning] Bu üç parça kabine girmez
+> Ürünün ses yolu [[../07-decisions/ADR-0002-biamp-signal-chain|ADR-0002]] ile I2S -> PCM5102A -> XH-A232'dir ve öyle kalır. Aşağıdaki devre yalnız geliştirme kartında, kullanıcının kendi harici DAC'ına bağlanmak içindir. BOM'a, kabin içi kablo demetine ve `TP` numaralandırmasına dahil değildir.
+
+Neden var: geliştirme kartında PCM5102A yok (ADR-0012) ve sipariş edilen modüller gelmedi, yani I2S'in üç pini hiçbir şeye sürüyordu — zincirin duyulabilir hiçbir çıktısı olmuyordu. Vendor edilen alıcı `audio_output_spdif.c` taşıyor: BMC (biphase-mark) kodlamasını modern `i2s_std` sürücüsü üzerinden bit-bang edip tek veri pininden gerçek bir S/PDIF akışı üretiyor. Bit ve kelime saati dışarı hiç çıkmaz. Açılışta `SPDIF output ready rate=44100x2 dma=192x2` satırı görülür; buradaki `x2` BMC'nin iki katına çıkardığı bit hızıdır, örnekleme oranı değil. 2026-09-05'te bir FiiO Q15'in coax girişi 44.1 kHz'e temiz kilitlendi ve ses duyuldu; ham kayıt [[../06-testing/devkit-bring-up|geliştirme kartı bring-up notundadır]].
+
+**Pin çakışması bu bölümün asıl uyarısıdır.** Çıkış, 3.1 tablosunda `I2S DATA OUT` olarak duran `GPIO6`'dır: ADR-0011 o pini ses verisine ayırmıştı ve `hk_airplay.c` seçimi derleme anında `hk_pins`e karşı doğruluyor. S/PDIF, I2S'in yanına eklenmez, **yerine geçer**. Bu çıkış etkinken `BCLK` ve `LRCLK` sürülmez; aynı anda bir PCM5102A beslenemez.
+
+Arayüz üç pasif parçadır. Şartname 75 Ω yükte `0.5 V ±%20` tepe ister, yani `0.4-0.6 V`; GPIO ise 3.3 V sallar. `R1/R2` bölücüsü hem seviyeyi indirir hem kaynak empedansını 75 Ω'a yaklaştırır, `100 nF` DC'yi keser:
+
+```text
+GPIO6 --[R1]--+--[100 nF]-- coax merkez
+              |
+            [R2]
+              |
+GND ----------+------------ coax toprak
+```
+
+| R1 / R2 | 75 Ω yükte tepe | Kaynak Z | Not |
+|---|---:|---:|---|
+| 210 Ω / 110 Ω | 0.578 V | 72.2 Ω | Vendor edilen dosyanın kendi değeri; %1 seri gerekir |
+| 220 Ω / 120 Ω | 0.572 V | 77.6 Ω | E24; kaynak empedansı 75 Ω'a en yakın olan |
+| 220 Ω / 100 Ω | 0.538 V | 68.8 Ω | E24 |
+| 270 Ω / 150 Ω | 0.516 V | 96.4 Ω | E24; seviye içeride, kaynak Z 75 Ω'dan uzak |
+| 330 Ω / 100 Ω | 0.379 V | — | **Kullanma**; şartnamenin 0.4 V tabanının altında |
+
+Son satır tabloya bilerek konuldu: `330/100` bu iş için yaygın olarak önerilir ve tepe değeri şartnamenin alt sınırının altında kalır. Bir DAC onunla kilitlenebilir de kilitlenmeyebilir de; kilitlenirse bu alıcının tolerans payıdır, devrenin doğruluğu değil. Direnç kutusunda `210/110` yoksa `220/120` alınır.
+
+Akış 44.1 kHz / 16 bit'te sabittir. Bunun nedeni bu kart değildir ve firmware ayarıyla yükseltilemez; gerekçesi bring-up notundadır.
+
+Bu çıkış hiçbir fiziksel kapıyı ilerletmez: dönüşümü kullanıcının kendi DAC'ı yapar ve bilinmeyen bir sürücüye enerji verilmez. Bölüm başındaki enerji verme yasağı ile G0-G2 sırası aynen geçerlidir.
 
 ## 4. Buton ve RGB LED
 
@@ -453,5 +488,7 @@ Her adım için [[../templates/test-report|test raporu]] oluşturulur. Fiziksel 
 - [[../power-and-battery-plan|Güç ve batarya planı]]
 - [[../controls-and-provisioning-plan|Kontroller ve provisioning]]
 - [[../06-testing/test-strategy|Test kapıları]]
+- [[../06-testing/devkit-bring-up|Geliştirme kartı bring-up kaydı]]
+- [[../07-decisions/ADR-0002-biamp-signal-chain|ADR-0002 — Bi-amp sinyal zinciri]]
 - [[../07-decisions/ADR-0009-usb-c-pd-charge-chain|ADR-0009 — USB-C PD şarj zinciri]]
 - [[../07-decisions/ADR-0010-esp32-s3-n16r8-board|ADR-0010 — Kanonik N16R8 kartı]]
